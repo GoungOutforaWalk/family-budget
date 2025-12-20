@@ -1,16 +1,21 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { PlusCircle, TrendingUp, TrendingDown, Wallet, Tag, List, Trash2, Edit2, X, Check, ArrowUp, ArrowDown, Users, LogIn, UserPlus, Share2, Link, Copy } from 'lucide-react';
+import { PlusCircle, TrendingUp, TrendingDown, Wallet, Tag, List, Trash2, Edit2, X, Check, ArrowUp, ArrowDown, Users, LogIn, UserPlus, Share2, Link, Copy, Loader2 } from 'lucide-react';
 
 const BudgetApp = () => {
+  // Loading states
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
   // Authentication state
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
-  const [authMode, setAuthMode] = useState('login'); // 'login', 'register', 'join'
+  const [authMode, setAuthMode] = useState('login');
   const [authForm, setAuthForm] = useState({ email: '', password: '', name: '', familyName: '' });
   const [authError, setAuthError] = useState('');
 
-  // Family/household members (dynamic users)
+  // Family data
+  const [familyId, setFamilyId] = useState(null);
   const [familyMembers, setFamilyMembers] = useState([]);
   const [familyName, setFamilyName] = useState('');
   
@@ -22,7 +27,6 @@ const BudgetApp = () => {
     income: ['הכנסה קבועה', 'הכנסה משתנה']
   });
 
-  // מקורות/יעדים כספיים - יווצרו דינמית לכל משתמש
   const [accounts, setAccounts] = useState([]);
 
   const [newTransaction, setNewTransaction] = useState({
@@ -55,7 +59,6 @@ const BudgetApp = () => {
   const [newAccountBalance, setNewAccountBalance] = useState(0);
   const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'ascending' });
 
-  // State for adding new account
   const [isAddingAccount, setIsAddingAccount] = useState(false);
   const [newAccount, setNewAccount] = useState({
     name: '',
@@ -65,7 +68,6 @@ const BudgetApp = () => {
     billingDay: null
   });
 
-  // State for inline adding in transactions table
   const [isAddingInline, setIsAddingInline] = useState(null);
   const [inlineTransaction, setInlineTransaction] = useState({
     type: 'expense',
@@ -79,60 +81,169 @@ const BudgetApp = () => {
     frequency: 'monthly'
   });
 
-  // State for member management
   const [isAddingMember, setIsAddingMember] = useState(false);
   const [newMemberName, setNewMemberName] = useState('');
   const [editingMember, setEditingMember] = useState(null);
   const [editingMemberName, setEditingMemberName] = useState('');
   const [showShareDialog, setShowShareDialog] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
-  const [shareType, setShareType] = useState('invite'); // 'invite' or 'app'
+  const [shareType, setShareType] = useState('invite');
   const [inviteLink, setInviteLink] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
 
-  // Generate invite link
-  const generateInviteLink = (type = 'invite') => {
-    setShareType(type);
-    if (type === 'invite') {
-      // Link to join this family account
-      const inviteCode = Math.random().toString(36).substring(2, 10).toUpperCase();
-      const link = `${window.location.origin}?invite=${inviteCode}&family=${encodeURIComponent(familyName)}`;
-      setInviteLink(link);
-    } else {
-      // Link to the app itself
-      setInviteLink(window.location.origin);
+  // ========================================
+  // SUPABASE: Check session on load
+  // ========================================
+  useEffect(() => {
+    checkSession();
+  }, []);
+
+  const checkSession = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        await loadUserData(session.user.id);
+      }
+    } catch (error) {
+      console.error('Error checking session:', error);
+    } finally {
+      setIsLoading(false);
     }
-    setShowShareDialog(true);
-    setShowShareMenu(false);
-    setLinkCopied(false);
   };
 
-  const copyInviteLink = () => {
-    navigator.clipboard.writeText(inviteLink);
-    setLinkCopied(true);
-    setTimeout(() => setLinkCopied(false), 2000);
+  const loadUserData = async (userId) => {
+    try {
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (userError || !userData) {
+        console.error('User not found:', userError);
+        setIsLoading(false);
+        return;
+      }
+
+      const { data: familyData } = await supabase
+        .from('families')
+        .select('*')
+        .eq('id', userData.family_id)
+        .single();
+
+      setCurrentUser(userData);
+      setFamilyId(userData.family_id);
+      setFamilyName(familyData?.name || '');
+      setIsLoggedIn(true);
+
+      await loadFamilyData(userData.family_id);
+    } catch (error) {
+      console.error('Error loading user data:', error);
+      setIsLoading(false);
+    }
   };
 
-  // Helper functions
-  const userColors = ['bg-blue-500', 'bg-pink-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500', 'bg-teal-500'];
-  const getUserColor = (userName) => {
-    const index = familyMembers.findIndex(m => m.name === userName);
-    return userColors[index % userColors.length] || 'bg-gray-500';
+  const loadFamilyData = async (famId) => {
+    try {
+      const { data: members } = await supabase
+        .from('users')
+        .select('*')
+        .eq('family_id', famId)
+        .order('created_at');
+      
+      if (members) {
+        setFamilyMembers(members.map(m => ({
+          id: m.id,
+          name: m.name,
+          email: m.email,
+          role: m.role,
+          createdAt: m.created_at
+        })));
+      }
+
+      const { data: accountsData } = await supabase
+        .from('accounts')
+        .select('*')
+        .eq('family_id', famId)
+        .order('sort_order');
+      
+      if (accountsData) {
+        setAccounts(accountsData.map(a => ({
+          id: a.id,
+          name: a.name,
+          user: a.user_name,
+          balance: parseFloat(a.balance) || 0,
+          parentAccount: a.parent_account,
+          billingDay: a.billing_day,
+          order: a.sort_order
+        })));
+        checkAndResetCreditCards(accountsData);
+      }
+
+      const { data: categoriesData } = await supabase
+        .from('categories')
+        .select('*')
+        .eq('family_id', famId)
+        .order('sort_order');
+      
+      if (categoriesData && categoriesData.length > 0) {
+        const expenseCats = categoriesData.filter(c => c.type === 'expense').map(c => c.name);
+        const incomeCats = categoriesData.filter(c => c.type === 'income').map(c => c.name);
+        if (expenseCats.length > 0 || incomeCats.length > 0) {
+          setCategories({
+            expense: expenseCats.length > 0 ? expenseCats : categories.expense,
+            income: incomeCats.length > 0 ? incomeCats : categories.income
+          });
+        }
+      }
+
+      const { data: transactionsData } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('family_id', famId)
+        .order('date', { ascending: false });
+      
+      if (transactionsData) {
+        setTransactions(transactionsData.map(t => ({
+          id: t.id,
+          type: t.type,
+          amount: parseFloat(t.amount),
+          category: t.category,
+          date: t.date,
+          user: t.user_name,
+          account: t.account_id,
+          note: t.note,
+          isRecurring: t.is_recurring,
+          frequency: t.frequency
+        })));
+      }
+    } catch (error) {
+      console.error('Error loading family data:', error);
+    }
   };
 
-  // Create default accounts for a new member
-  const createDefaultAccountsForMember = (memberName) => {
-    const maxId = accounts.length > 0 ? Math.max(...accounts.map(a => a.id)) : 0;
-    const defaultAccounts = [
-      { id: maxId + 1, name: 'חשבון בנק', user: memberName, balance: 0, parentAccount: null, billingDay: null, order: 0 },
-      { id: maxId + 2, name: 'מזומן', user: memberName, balance: 0, parentAccount: null, billingDay: null, order: 1 },
-      { id: maxId + 3, name: 'Bit', user: memberName, balance: 0, parentAccount: null, billingDay: null, order: 2 },
-    ];
-    return defaultAccounts;
+  const checkAndResetCreditCards = async (accountsList) => {
+    const today = new Date();
+    const currentDay = today.getDate();
+    
+    for (const account of accountsList) {
+      if (account.billing_day && account.billing_day > 0 && currentDay === account.billing_day) {
+        await supabase
+          .from('accounts')
+          .update({ balance: 0 })
+          .eq('id', account.id);
+        
+        setAccounts(prev => prev.map(a => 
+          a.id === account.id ? { ...a, balance: 0 } : a
+        ));
+      }
+    }
   };
 
-  // Authentication functions
-  const handleRegister = () => {
+  // ========================================
+  // SUPABASE: Authentication
+  // ========================================
+  const handleRegister = async () => {
     if (!authForm.name.trim() || !authForm.familyName.trim()) {
       setAuthError('נא למלא שם ושם משפחה/חשבון');
       return;
@@ -146,56 +257,158 @@ const BudgetApp = () => {
       return;
     }
 
-    // Create first member and family
-    const firstMember = {
-      id: 1,
-      name: authForm.name.trim(),
-      email: authForm.email.trim(),
-      role: 'admin', // מנהל - יכול להזמין אחרים
-      createdAt: new Date().toISOString()
-    };
-
-    setFamilyMembers([firstMember]);
-    setFamilyName(authForm.familyName.trim());
-    setCurrentUser(firstMember);
-    
-    // Create default accounts for first member
-    const defaultAccounts = createDefaultAccountsForMember(firstMember.name);
-    setAccounts(defaultAccounts);
-    
-    // Set default user in forms
-    setNewTransaction(prev => ({ ...prev, user: firstMember.name }));
-    setNewAccount(prev => ({ ...prev, user: firstMember.name }));
-    setInlineTransaction(prev => ({ ...prev, user: firstMember.name }));
-    
-    setIsLoggedIn(true);
+    setIsSaving(true);
     setAuthError('');
-    setAuthForm({ email: '', password: '', name: '', familyName: '' });
+
+    try {
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: authForm.email.trim(),
+        password: authForm.password,
+      });
+
+      if (authError) {
+        setAuthError(authError.message.includes('already registered') ? 'האימייל הזה כבר רשום במערכת' : authError.message);
+        setIsSaving(false);
+        return;
+      }
+
+      if (!authData.user) {
+        setAuthError('שגיאה ביצירת המשתמש');
+        setIsSaving(false);
+        return;
+      }
+
+      const { data: familyData, error: familyError } = await supabase
+        .from('families')
+        .insert({ name: authForm.familyName.trim() })
+        .select()
+        .single();
+
+      if (familyError) {
+        setAuthError('שגיאה ביצירת החשבון המשפחתי');
+        setIsSaving(false);
+        return;
+      }
+
+      await supabase.from('users').insert({
+        id: authData.user.id,
+        email: authForm.email.trim(),
+        name: authForm.name.trim(),
+        family_id: familyData.id,
+        role: 'admin'
+      });
+
+      const defaultCategories = [
+        { family_id: familyData.id, name: 'סופר', type: 'expense', sort_order: 0 },
+        { family_id: familyData.id, name: 'אוכל בחוץ והזמנות', type: 'expense', sort_order: 1 },
+        { family_id: familyData.id, name: 'לימודים', type: 'expense', sort_order: 2 },
+        { family_id: familyData.id, name: 'רכב', type: 'expense', sort_order: 3 },
+        { family_id: familyData.id, name: 'חיסכון', type: 'expense', sort_order: 4 },
+        { family_id: familyData.id, name: 'שונות', type: 'expense', sort_order: 5 },
+        { family_id: familyData.id, name: 'הכנסה קבועה', type: 'income', sort_order: 0 },
+        { family_id: familyData.id, name: 'הכנסה משתנה', type: 'income', sort_order: 1 },
+      ];
+      await supabase.from('categories').insert(defaultCategories);
+
+      const defaultAccounts = [
+        { family_id: familyData.id, user_name: authForm.name.trim(), name: 'חשבון בנק', balance: 0, sort_order: 0 },
+        { family_id: familyData.id, user_name: authForm.name.trim(), name: 'מזומן', balance: 0, sort_order: 1 },
+        { family_id: familyData.id, user_name: authForm.name.trim(), name: 'Bit', balance: 0, sort_order: 2 },
+      ];
+      await supabase.from('accounts').insert(defaultAccounts);
+
+      await loadUserData(authData.user.id);
+      setAuthForm({ email: '', password: '', name: '', familyName: '' });
+    } catch (error) {
+      console.error('Registration error:', error);
+      setAuthError('שגיאה בהרשמה');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleLogin = () => {
-    // For demo purposes - in real app this would check against database
+  const handleLogin = async () => {
     if (!authForm.email.trim() || !authForm.password.trim()) {
       setAuthError('נא למלא אימייל וסיסמה');
       return;
     }
-    
-    // Simulate login - in real app would verify credentials
-    setAuthError('משתמש לא נמצא. אם אין לך חשבון, לחץ על "הרשמה"');
+
+    setIsSaving(true);
+    setAuthError('');
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: authForm.email.trim(),
+        password: authForm.password,
+      });
+
+      if (error) {
+        setAuthError(error.message.includes('Invalid login') ? 'אימייל או סיסמה שגויים' : error.message);
+        setIsSaving(false);
+        return;
+      }
+
+      if (data.user) {
+        await loadUserData(data.user.id);
+        setAuthForm({ email: '', password: '', name: '', familyName: '' });
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      setAuthError('שגיאה בהתחברות');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setIsLoggedIn(false);
     setCurrentUser(null);
+    setFamilyId(null);
     setFamilyMembers([]);
     setFamilyName('');
     setAccounts([]);
     setTransactions([]);
+    setCategories({
+      expense: ['סופר', 'אוכל בחוץ והזמנות', 'לימודים', 'רכב', 'חיסכון', 'שונות'],
+      income: ['הכנסה קבועה', 'הכנסה משתנה']
+    });
     setAuthMode('login');
   };
 
-  // Member management functions
-  const addFamilyMember = () => {
+  // ========================================
+  // Helper Functions
+  // ========================================
+  const generateInviteLink = (type = 'invite') => {
+    setShareType(type);
+    if (type === 'invite') {
+      const inviteCode = Math.random().toString(36).substring(2, 10).toUpperCase();
+      const link = `${window.location.origin}?invite=${inviteCode}&family=${encodeURIComponent(familyName)}`;
+      setInviteLink(link);
+    } else {
+      setInviteLink(window.location.origin);
+    }
+    setShowShareDialog(true);
+    setShowShareMenu(false);
+    setLinkCopied(false);
+  };
+
+  const copyInviteLink = () => {
+    navigator.clipboard.writeText(inviteLink);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  };
+
+  const userColors = ['bg-blue-500', 'bg-pink-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500', 'bg-teal-500'];
+  const getUserColor = (userName) => {
+    const index = familyMembers.findIndex(m => m.name === userName);
+    return userColors[index % userColors.length] || 'bg-gray-500';
+  };
+
+  // ========================================
+  // SUPABASE: Member Management
+  // ========================================
+  const addFamilyMember = async () => {
     if (!newMemberName.trim()) {
       alert('נא להזין שם');
       return;
@@ -206,52 +419,97 @@ const BudgetApp = () => {
       return;
     }
 
-    const newMember = {
-      id: Math.max(...familyMembers.map(m => m.id), 0) + 1,
-      name: newMemberName.trim(),
-      email: '',
-      role: 'member', // חבר רגיל
-      createdAt: new Date().toISOString()
-    };
+    setIsSaving(true);
+    try {
+      const memberId = `member_${Date.now()}`;
+      const newMember = {
+        id: memberId,
+        name: newMemberName.trim(),
+        email: '',
+        role: 'member',
+        createdAt: new Date().toISOString()
+      };
 
-    setFamilyMembers([...familyMembers, newMember]);
-    
-    // Create default accounts for new member
-    const newAccounts = createDefaultAccountsForMember(newMember.name);
-    setAccounts([...accounts, ...newAccounts]);
-    
-    setNewMemberName('');
-    setIsAddingMember(false);
+      const defaultAccounts = [
+        { family_id: familyId, user_name: newMemberName.trim(), name: 'חשבון בנק', balance: 0, sort_order: 0 },
+        { family_id: familyId, user_name: newMemberName.trim(), name: 'מזומן', balance: 0, sort_order: 1 },
+        { family_id: familyId, user_name: newMemberName.trim(), name: 'Bit', balance: 0, sort_order: 2 },
+      ];
+
+      const { data: newAccounts, error } = await supabase
+        .from('accounts')
+        .insert(defaultAccounts)
+        .select();
+
+      if (error) throw error;
+
+      setFamilyMembers([...familyMembers, newMember]);
+      
+      if (newAccounts) {
+        const mappedAccounts = newAccounts.map(a => ({
+          id: a.id,
+          name: a.name,
+          user: a.user_name,
+          balance: parseFloat(a.balance) || 0,
+          parentAccount: a.parent_account,
+          billingDay: a.billing_day,
+          order: a.sort_order
+        }));
+        setAccounts([...accounts, ...mappedAccounts]);
+      }
+      
+      setNewMemberName('');
+      setIsAddingMember(false);
+    } catch (error) {
+      console.error('Error adding member:', error);
+      alert('שגיאה בהוספת המשתמש');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const updateMemberName = (memberId, newName) => {
+  const updateMemberName = async (memberId, newName) => {
     if (!newName.trim()) return;
     
     const oldMember = familyMembers.find(m => m.id === memberId);
     if (!oldMember) return;
     
     const oldName = oldMember.name;
-    
-    // Update member name
-    setFamilyMembers(familyMembers.map(m => 
-      m.id === memberId ? { ...m, name: newName.trim() } : m
-    ));
-    
-    // Update all accounts with this user
-    setAccounts(accounts.map(a => 
-      a.user === oldName ? { ...a, user: newName.trim() } : a
-    ));
-    
-    // Update all transactions with this user
-    setTransactions(transactions.map(t => 
-      t.user === oldName ? { ...t, user: newName.trim() } : t
-    ));
-    
-    setEditingMember(null);
-    setEditingMemberName('');
+
+    try {
+      await supabase
+        .from('accounts')
+        .update({ user_name: newName.trim() })
+        .eq('family_id', familyId)
+        .eq('user_name', oldName);
+
+      await supabase
+        .from('transactions')
+        .update({ user_name: newName.trim() })
+        .eq('family_id', familyId)
+        .eq('user_name', oldName);
+
+      setFamilyMembers(familyMembers.map(m => 
+        m.id === memberId ? { ...m, name: newName.trim() } : m
+      ));
+      
+      setAccounts(accounts.map(a => 
+        a.user === oldName ? { ...a, user: newName.trim() } : a
+      ));
+      
+      setTransactions(transactions.map(t => 
+        t.user === oldName ? { ...t, user: newName.trim() } : t
+      ));
+      
+      setEditingMember(null);
+      setEditingMemberName('');
+    } catch (error) {
+      console.error('Error updating member name:', error);
+      alert('שגיאה בעדכון שם המשתמש');
+    }
   };
 
-  const deleteFamilyMember = (memberId) => {
+  const deleteFamilyMember = async (memberId) => {
     const member = familyMembers.find(m => m.id === memberId);
     if (!member) return;
     
@@ -260,7 +518,6 @@ const BudgetApp = () => {
       return;
     }
     
-    // Check if member has transactions
     const hasTransactions = transactions.some(t => t.user === member.name);
     if (hasTransactions) {
       alert('לא ניתן למחוק משתמש שיש לו תנועות. יש למחוק קודם את התנועות.');
@@ -268,13 +525,25 @@ const BudgetApp = () => {
     }
     
     if (confirm(`האם אתה בטוח שברצונך למחוק את "${member.name}"?`)) {
-      // Delete member's accounts
-      setAccounts(accounts.filter(a => a.user !== member.name));
-      // Delete member
-      setFamilyMembers(familyMembers.filter(m => m.id !== memberId));
+      try {
+        await supabase
+          .from('accounts')
+          .delete()
+          .eq('family_id', familyId)
+          .eq('user_name', member.name);
+
+        setAccounts(accounts.filter(a => a.user !== member.name));
+        setFamilyMembers(familyMembers.filter(m => m.id !== memberId));
+      } catch (error) {
+        console.error('Error deleting member:', error);
+        alert('שגיאה במחיקת המשתמש');
+      }
     }
   };
 
+  // ========================================
+  // Sorting & Calculations
+  // ========================================
   const sortTransactions = useCallback((items, config) => {
     if (!config.key) return items;
     
@@ -286,11 +555,11 @@ const BudgetApp = () => {
         aValue = new Date(aValue).getTime();
         bValue = new Date(bValue).getTime();
       } else if (config.key === 'account') {
-        const aName = accounts.find(acc => acc.id === parseInt(aValue))?.name;
-        const bName = accounts.find(acc => acc.id === parseInt(bValue))?.name;
+        const aName = accounts.find(acc => acc.id === aValue)?.name || '';
+        const bName = accounts.find(acc => acc.id === bValue)?.name || '';
         return config.direction === 'ascending' 
-          ? (aName || '').localeCompare(bName || '')
-          : (bName || '').localeCompare(aName || '');
+          ? aName.localeCompare(bName)
+          : bName.localeCompare(aName);
       } else if (config.key === 'user' || config.key === 'category') {
         return config.direction === 'ascending'
           ? (aValue || '').localeCompare(bValue || '')
@@ -313,158 +582,6 @@ const BudgetApp = () => {
     setSortConfig({ key, direction });
   };
 
-  const updateAccountBalance = useCallback((accountId, amount, type, isRevert = false) => {
-    setAccounts(prevAccounts => {
-      const account = prevAccounts.find(a => a.id === parseInt(accountId));
-      if (!account) return prevAccounts;
-      
-      let change = amount;
-      if (type === 'expense') change = -change;
-      if (isRevert) change = -change;
-      
-      // Check if this is a direct debit account (billingDay === 0)
-      const isDirectDebit = account.billingDay === 0;
-      
-      return prevAccounts.map(acc => {
-        // עדכון המקור שנבחר
-        if (acc.id === parseInt(accountId)) {
-          // דיירקט - מתאפס אחרי כל עסקה (יתרה תמיד 0)
-          if (isDirectDebit && !isRevert) {
-            return { ...acc, balance: 0 };
-          }
-          return { ...acc, balance: acc.balance + change };
-        }
-        // עדכון חשבון האב (אם קיים)
-        if (account.parentAccount && acc.id === account.parentAccount) {
-          return { ...acc, balance: acc.balance + change };
-        }
-        return acc;
-      });
-    });
-  }, []);
-
-  // Transaction management
-  const addTransaction = () => {
-    if (!newTransaction.amount || !newTransaction.category || !newTransaction.account) {
-      alert('נא למלא את כל השדות הנדרשים');
-      return;
-    }
-
-    const transaction = {
-      id: Date.now(),
-      ...newTransaction,
-      amount: parseFloat(newTransaction.amount)
-    };
-
-    setTransactions([...transactions, transaction]);
-    updateAccountBalance(transaction.account, transaction.amount, transaction.type);
-
-    setNewTransaction({
-      type: 'expense',
-      amount: '',
-      category: '',
-      date: new Date().toISOString().split('T')[0],
-      user: familyMembers.length > 0 ? familyMembers[0].name : '',
-      account: '',
-      note: '',
-      isRecurring: false,
-      frequency: 'monthly'
-    });
-  };
-
-  const deleteTransaction = (id) => {
-    const transaction = transactions.find(t => t.id === id);
-    if (transaction) {
-      updateAccountBalance(transaction.account, transaction.amount, transaction.type, true);
-      setTransactions(transactions.filter(t => t.id !== id));
-    }
-  };
-
-  const startEditTransaction = (transaction) => {
-    setEditingTransaction({
-      ...transaction,
-      amount: transaction.amount.toString()
-    });
-    setIsEditingTransaction(transaction.id);
-  };
-
-  const saveEditTransaction = () => {
-    if (!editingTransaction.amount || !editingTransaction.category || !editingTransaction.account) {
-      alert('נא למלא את כל השדות הנדרשים');
-      return;
-    }
-
-    const oldTransaction = transactions.find(t => t.id === editingTransaction.id);
-    const newAmount = parseFloat(editingTransaction.amount);
-
-    if (oldTransaction) {
-      updateAccountBalance(oldTransaction.account, oldTransaction.amount, oldTransaction.type, true);
-      updateAccountBalance(editingTransaction.account, newAmount, editingTransaction.type);
-      
-      setTransactions(transactions.map(t => 
-        t.id === editingTransaction.id ? { ...editingTransaction, amount: newAmount } : t
-      ));
-    }
-
-    setIsEditingTransaction(null);
-    setEditingTransaction(null);
-  };
-
-  const cancelEditTransaction = () => {
-    setIsEditingTransaction(null);
-    setEditingTransaction(null);
-  };
-
-  // Inline add transaction functions
-  const startInlineAdd = (type) => {
-    setIsAddingInline(type);
-    setInlineTransaction({
-      type: type,
-      amount: '',
-      category: '',
-      date: new Date().toISOString().split('T')[0],
-      user: familyMembers.length > 0 ? familyMembers[0].name : '',
-      account: '',
-      note: '',
-      isRecurring: false,
-      frequency: 'monthly'
-    });
-  };
-
-  const saveInlineTransaction = () => {
-    if (!inlineTransaction.amount || !inlineTransaction.category || !inlineTransaction.account) {
-      alert('נא למלא את כל השדות הנדרשים');
-      return;
-    }
-
-    const transaction = {
-      id: Date.now(),
-      ...inlineTransaction,
-      amount: parseFloat(inlineTransaction.amount)
-    };
-
-    setTransactions([...transactions, transaction]);
-    updateAccountBalance(transaction.account, transaction.amount, transaction.type);
-    
-    setIsAddingInline(null);
-    setInlineTransaction({
-      type: 'expense',
-      amount: '',
-      category: '',
-      date: new Date().toISOString().split('T')[0],
-      user: familyMembers.length > 0 ? familyMembers[0].name : '',
-      account: '',
-      note: '',
-      isRecurring: false,
-      frequency: 'monthly'
-    });
-  };
-
-  const cancelInlineAdd = () => {
-    setIsAddingInline(null);
-  };
-
-  // Summary calculation
   const calculateSummary = useCallback(() => {
     const now = new Date();
     const currentMonth = now.getMonth();
@@ -472,7 +589,6 @@ const BudgetApp = () => {
 
     let filtered = transactions;
 
-    // סינון לפי תקופה
     if (filterOptions.period === 'monthly') {
       filtered = transactions.filter(t => {
         const tDate = new Date(t.date);
@@ -489,7 +605,6 @@ const BudgetApp = () => {
       });
     }
 
-    // סינון לפי משתמש
     if (filterOptions.user !== 'all') {
       filtered = filtered.filter(t => t.user === filterOptions.user);
     }
@@ -508,57 +623,369 @@ const BudgetApp = () => {
     expensesByCategory[t.category] = (expensesByCategory[t.category] || 0) + t.amount;
   });
 
-  // Category management
-  const addCategory = () => {
-    if (!newCategoryName.trim() || categories[newCategoryType].includes(newCategoryName.trim())) return;
-    setCategories({
-      ...categories,
-      [newCategoryType]: [...categories[newCategoryType], newCategoryName.trim()]
-    });
-    setNewCategoryName('');
-  };
+  // ========================================
+  // SUPABASE: Account Balance Updates
+  // ========================================
+  const updateAccountBalance = useCallback(async (accountId, amount, type, isRevert = false) => {
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) return;
+    
+    let change = amount;
+    if (type === 'expense') change = -change;
+    if (isRevert) change = -change;
+    
+    const isDirectDebit = account.billingDay === 0;
+    let newBalance = isDirectDebit && !isRevert ? 0 : account.balance + change;
 
-  const deleteCategory = (type, category) => {
-    const isUsed = transactions.some(t => t.category === category);
-    if (isUsed) {
-      alert('לא ניתן למחוק קטגוריה בשימוש');
+    await supabase
+      .from('accounts')
+      .update({ balance: newBalance })
+      .eq('id', accountId);
+
+    if (account.parentAccount) {
+      const parentAccount = accounts.find(a => a.id === account.parentAccount);
+      if (parentAccount) {
+        const parentNewBalance = parentAccount.balance + change;
+        await supabase
+          .from('accounts')
+          .update({ balance: parentNewBalance })
+          .eq('id', account.parentAccount);
+      }
+    }
+
+    setAccounts(prevAccounts => prevAccounts.map(acc => {
+      if (acc.id === accountId) {
+        return { ...acc, balance: newBalance };
+      }
+      if (account.parentAccount && acc.id === account.parentAccount) {
+        return { ...acc, balance: acc.balance + change };
+      }
+      return acc;
+    }));
+  }, [accounts]);
+
+  // ========================================
+  // SUPABASE: Transaction Management
+  // ========================================
+  const addTransaction = async () => {
+    if (!newTransaction.amount || !newTransaction.category || !newTransaction.account) {
+      alert('נא למלא את כל השדות הנדרשים');
       return;
     }
-    setCategories({
-      ...categories,
-      [type]: categories[type].filter(c => c !== category)
+
+    setIsSaving(true);
+    try {
+      const transactionData = {
+        family_id: familyId,
+        type: newTransaction.type,
+        amount: parseFloat(newTransaction.amount),
+        category: newTransaction.category,
+        date: newTransaction.date,
+        user_name: newTransaction.user,
+        account_id: newTransaction.account,
+        note: newTransaction.note || null,
+        is_recurring: newTransaction.isRecurring,
+        frequency: newTransaction.frequency
+      };
+
+      const { data, error } = await supabase
+        .from('transactions')
+        .insert(transactionData)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const transaction = {
+        id: data.id,
+        type: data.type,
+        amount: parseFloat(data.amount),
+        category: data.category,
+        date: data.date,
+        user: data.user_name,
+        account: data.account_id,
+        note: data.note,
+        isRecurring: data.is_recurring,
+        frequency: data.frequency
+      };
+
+      setTransactions([transaction, ...transactions]);
+      await updateAccountBalance(transaction.account, transaction.amount, transaction.type);
+
+      setNewTransaction({
+        type: 'expense',
+        amount: '',
+        category: '',
+        date: new Date().toISOString().split('T')[0],
+        user: familyMembers.length > 0 ? familyMembers[0].name : '',
+        account: '',
+        note: '',
+        isRecurring: false,
+        frequency: 'monthly'
+      });
+    } catch (error) {
+      console.error('Error adding transaction:', error);
+      alert('שגיאה בהוספת התנועה');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const deleteTransaction = async (id) => {
+    const transaction = transactions.find(t => t.id === id);
+    if (!transaction) return;
+
+    try {
+      await updateAccountBalance(transaction.account, transaction.amount, transaction.type, true);
+      
+      await supabase
+        .from('transactions')
+        .delete()
+        .eq('id', id);
+      
+      setTransactions(transactions.filter(t => t.id !== id));
+    } catch (error) {
+      console.error('Error deleting transaction:', error);
+      alert('שגיאה במחיקת התנועה');
+    }
+  };
+
+  const startEditTransaction = (transaction) => {
+    setEditingTransaction({
+      ...transaction,
+      amount: transaction.amount.toString()
+    });
+    setIsEditingTransaction(transaction.id);
+  };
+
+  const saveEditTransaction = async () => {
+    if (!editingTransaction.amount || !editingTransaction.category || !editingTransaction.account) {
+      alert('נא למלא את כל השדות הנדרשים');
+      return;
+    }
+
+    try {
+      const oldTransaction = transactions.find(t => t.id === editingTransaction.id);
+      const newAmount = parseFloat(editingTransaction.amount);
+
+      if (oldTransaction) {
+        await updateAccountBalance(oldTransaction.account, oldTransaction.amount, oldTransaction.type, true);
+        await updateAccountBalance(editingTransaction.account, newAmount, editingTransaction.type);
+      }
+
+      await supabase
+        .from('transactions')
+        .update({
+          type: editingTransaction.type,
+          amount: newAmount,
+          category: editingTransaction.category,
+          date: editingTransaction.date,
+          user_name: editingTransaction.user,
+          account_id: editingTransaction.account,
+          note: editingTransaction.note || null
+        })
+        .eq('id', editingTransaction.id);
+
+      setTransactions(transactions.map(t => 
+        t.id === editingTransaction.id ? { ...editingTransaction, amount: newAmount } : t
+      ));
+
+      setIsEditingTransaction(null);
+      setEditingTransaction(null);
+    } catch (error) {
+      console.error('Error updating transaction:', error);
+      alert('שגיאה בעדכון התנועה');
+    }
+  };
+
+  const cancelEditTransaction = () => {
+    setIsEditingTransaction(null);
+    setEditingTransaction(null);
+  };
+
+  const startInlineAdd = (type) => {
+    setIsAddingInline(type);
+    setInlineTransaction({
+      type: type,
+      amount: '',
+      category: '',
+      date: new Date().toISOString().split('T')[0],
+      user: familyMembers.length > 0 ? familyMembers[0].name : '',
+      account: '',
+      note: '',
+      isRecurring: false,
+      frequency: 'monthly'
     });
   };
 
-  const startEditCategory = (type, category) => {
-    setEditingCategory({ type, category });
-    setNewCategoryName(category);
+  const saveInlineTransaction = async () => {
+    if (!inlineTransaction.amount || !inlineTransaction.category || !inlineTransaction.account) {
+      alert('נא למלא את כל השדות הנדרשים');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const transactionData = {
+        family_id: familyId,
+        type: inlineTransaction.type,
+        amount: parseFloat(inlineTransaction.amount),
+        category: inlineTransaction.category,
+        date: inlineTransaction.date,
+        user_name: inlineTransaction.user,
+        account_id: inlineTransaction.account,
+        note: inlineTransaction.note || null,
+        is_recurring: inlineTransaction.isRecurring,
+        frequency: inlineTransaction.frequency
+      };
+
+      const { data, error } = await supabase
+        .from('transactions')
+        .insert(transactionData)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const transaction = {
+        id: data.id,
+        type: data.type,
+        amount: parseFloat(data.amount),
+        category: data.category,
+        date: data.date,
+        user: data.user_name,
+        account: data.account_id,
+        note: data.note,
+        isRecurring: data.is_recurring,
+        frequency: data.frequency
+      };
+
+      setTransactions([transaction, ...transactions]);
+      await updateAccountBalance(transaction.account, transaction.amount, transaction.type);
+      
+      setIsAddingInline(null);
+    } catch (error) {
+      console.error('Error adding transaction:', error);
+      alert('שגיאה בהוספת התנועה');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const cancelInlineAdd = () => {
+    setIsAddingInline(null);
+  };
+
+  // ========================================
+  // SUPABASE: Category Management
+  // ========================================
+  const addCategory = async () => {
+    if (!newCategoryName.trim()) return;
+    
+    const type = newCategoryType;
+    if (categories[type].includes(newCategoryName.trim())) {
+      alert('קטגוריה זו כבר קיימת');
+      return;
+    }
+
+    try {
+      await supabase.from('categories').insert({
+        family_id: familyId,
+        name: newCategoryName.trim(),
+        type: type,
+        sort_order: categories[type].length
+      });
+
+      setCategories({
+        ...categories,
+        [type]: [...categories[type], newCategoryName.trim()]
+      });
+
+      setNewCategoryName('');
+    } catch (error) {
+      console.error('Error adding category:', error);
+      alert('שגיאה בהוספת קטגוריה');
+    }
+  };
+
+  const deleteCategory = async (type, categoryName) => {
+    const isUsed = transactions.some(t => t.category === categoryName && t.type === type);
+    if (isUsed) {
+      alert('לא ניתן למחוק קטגוריה שיש בה תנועות');
+      return;
+    }
+    
+    try {
+      await supabase
+        .from('categories')
+        .delete()
+        .eq('family_id', familyId)
+        .eq('name', categoryName)
+        .eq('type', type);
+
+      setCategories({
+        ...categories,
+        [type]: categories[type].filter(c => c !== categoryName)
+      });
+    } catch (error) {
+      console.error('Error deleting category:', error);
+      alert('שגיאה במחיקת קטגוריה');
+    }
+  };
+
+  const startEditCategory = (type, categoryName) => {
+    setEditingCategory({ type, name: categoryName });
+    setNewCategoryName(categoryName);
     setNewCategoryType(type);
   };
 
-  const saveEditCategory = () => {
-    if (!newCategoryName.trim() || !editingCategory) return;
+  const saveEditCategory = async () => {
+    if (!editingCategory || !newCategoryName.trim()) return;
     
-    const oldName = editingCategory.category;
+    const { type, name: oldName } = editingCategory;
     const newName = newCategoryName.trim();
-    const type = editingCategory.type;
+    
+    if (oldName === newName) {
+      setEditingCategory(null);
+      setNewCategoryName('');
+      return;
+    }
 
-    setCategories({
-      ...categories,
-      [type]: categories[type].map(c => c === oldName ? newName : c)
-    });
+    try {
+      await supabase
+        .from('categories')
+        .update({ name: newName })
+        .eq('family_id', familyId)
+        .eq('name', oldName)
+        .eq('type', type);
 
-    setTransactions(transactions.map(t => 
-      t.category === oldName ? { ...t, category: newName } : t
-    ));
+      await supabase
+        .from('transactions')
+        .update({ category: newName })
+        .eq('family_id', familyId)
+        .eq('category', oldName)
+        .eq('type', type);
 
-    setEditingCategory(null);
-    setNewCategoryName('');
+      setCategories({
+        ...categories,
+        [type]: categories[type].map(c => c === oldName ? newName : c)
+      });
+
+      setTransactions(transactions.map(t => 
+        t.category === oldName && t.type === type ? { ...t, category: newName } : t
+      ));
+
+      setEditingCategory(null);
+      setNewCategoryName('');
+    } catch (error) {
+      console.error('Error updating category:', error);
+      alert('שגיאה בעדכון קטגוריה');
+    }
   };
 
-  const moveCategory = (type, category, direction) => {
-    const list = categories[type];
-    const index = list.indexOf(category);
+  const moveCategory = (type, categoryName, direction) => {
+    const list = [...categories[type]];
+    const index = list.indexOf(categoryName);
     if (index === -1) return;
 
     const newIndex = direction === 'up' ? index - 1 : index + 1;
@@ -569,76 +996,127 @@ const BudgetApp = () => {
     setCategories({ ...categories, [type]: newList });
   };
 
-  // Account management
-  const updateAccountInitialBalance = () => {
+  // ========================================
+  // SUPABASE: Account Management
+  // ========================================
+  const updateAccountInitialBalance = async () => {
     if (!editingAccount) return;
     const newBalance = parseFloat(newAccountBalance);
     
-    setAccounts(prevAccounts => prevAccounts.map(a => 
-      a.id === editingAccount.id 
-        ? { 
-            ...a, 
-            name: editingAccount.name,
-            balance: newBalance, 
-            parentAccount: editingAccount.parentAccount,
-            billingDay: editingAccount.billingDay
-          } 
-        : a
-    ));
-    setEditingAccount(null);
+    try {
+      await supabase
+        .from('accounts')
+        .update({
+          name: editingAccount.name,
+          balance: newBalance,
+          parent_account: editingAccount.parentAccount,
+          billing_day: editingAccount.billingDay
+        })
+        .eq('id', editingAccount.id);
+
+      setAccounts(accounts.map(a => 
+        a.id === editingAccount.id 
+          ? { 
+              ...a, 
+              name: editingAccount.name,
+              balance: newBalance, 
+              parentAccount: editingAccount.parentAccount,
+              billingDay: editingAccount.billingDay
+            } 
+          : a
+      ));
+
+      setEditingAccount(null);
+    } catch (error) {
+      console.error('Error updating account:', error);
+      alert('שגיאה בעדכון המקור');
+    }
   };
 
-  const addNewAccount = () => {
+  const addNewAccount = async () => {
     if (!newAccount.name.trim()) {
       alert('נא להזין שם למקור');
       return;
     }
 
-    const maxId = Math.max(...accounts.map(a => a.id), 0);
-    const userAccounts = accounts.filter(a => a.user === newAccount.user);
-    const maxOrder = userAccounts.length > 0 ? Math.max(...userAccounts.map(a => a.order || 0)) : -1;
+    setIsSaving(true);
+    try {
+      const userAccounts = accounts.filter(a => a.user === newAccount.user);
+      const maxOrder = userAccounts.length > 0 ? Math.max(...userAccounts.map(a => a.order || 0)) : -1;
 
-    const account = {
-      id: maxId + 1,
-      name: newAccount.name.trim(),
-      user: newAccount.user,
-      balance: parseFloat(newAccount.balance) || 0,
-      parentAccount: newAccount.parentAccount ? parseInt(newAccount.parentAccount) : null,
-      billingDay: newAccount.billingDay,
-      order: maxOrder + 1
-    };
+      const accountData = {
+        family_id: familyId,
+        user_name: newAccount.user,
+        name: newAccount.name.trim(),
+        balance: parseFloat(newAccount.balance) || 0,
+        parent_account: newAccount.parentAccount || null,
+        billing_day: newAccount.billingDay,
+        sort_order: maxOrder + 1
+      };
 
-    setAccounts([...accounts, account]);
-    setNewAccount({
-      name: '',
-      user: familyMembers.length > 0 ? familyMembers[0].name : '',
-      balance: 0,
-      parentAccount: null,
-      billingDay: null
-    });
-    setIsAddingAccount(false);
+      const { data, error } = await supabase
+        .from('accounts')
+        .insert(accountData)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const account = {
+        id: data.id,
+        name: data.name,
+        user: data.user_name,
+        balance: parseFloat(data.balance) || 0,
+        parentAccount: data.parent_account,
+        billingDay: data.billing_day,
+        order: data.sort_order
+      };
+
+      setAccounts([...accounts, account]);
+      setNewAccount({
+        name: '',
+        user: familyMembers.length > 0 ? familyMembers[0].name : '',
+        balance: 0,
+        parentAccount: null,
+        billingDay: null
+      });
+      setIsAddingAccount(false);
+    } catch (error) {
+      console.error('Error adding account:', error);
+      alert('שגיאה בהוספת המקור');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const deleteAccount = (accountId) => {
+  const deleteAccount = async (accountId) => {
     const account = accounts.find(a => a.id === accountId);
     if (!account) return;
 
-    // Check if account is used in transactions
-    const isUsed = transactions.some(t => parseInt(t.account) === accountId);
+    const isUsed = transactions.some(t => t.account === accountId);
     if (isUsed) {
       alert('לא ניתן למחוק מקור שיש בו תנועות. יש למחוק קודם את התנועות.');
       return;
     }
 
-    // Check if account is a parent to other accounts
     const hasChildren = accounts.some(a => a.parentAccount === accountId);
     if (hasChildren) {
-      alert('לא ניתן למחוק מקור שיש לו חשבונות משויכים. יש לשנות את החשבונות המשויכים קודם.');
+      alert('לא ניתן למחוק מקור שיש לו חשבונות משויכים.');
       return;
     }
 
     if (confirm(`האם אתה בטוח שברצונך למחוק את "${account.name}"?`)) {
-      setAccounts(accounts.filter(a => a.id !== accountId));
+      try {
+        await supabase
+          .from('accounts')
+          .delete()
+          .eq('id', accountId);
+
+        setAccounts(accounts.filter(a => a.id !== accountId));
+      } catch (error) {
+        console.error('Error deleting account:', error);
+        alert('שגיאה במחיקת המקור');
+      }
     }
   };
 
@@ -653,7 +1131,6 @@ const BudgetApp = () => {
     const newIndex = direction === 'up' ? index - 1 : index + 1;
     if (newIndex < 0 || newIndex >= userAccounts.length) return;
 
-    // Swap orders
     const currentOrder = userAccounts[index].order || 0;
     const targetOrder = userAccounts[newIndex].order || 0;
 
@@ -664,7 +1141,6 @@ const BudgetApp = () => {
     }));
   };
 
-  // Get sorted accounts with children under parents
   const getSortedAccountsForUser = (user) => {
     const userAccounts = accounts.filter(a => a.user === user);
     const parents = userAccounts
@@ -674,7 +1150,6 @@ const BudgetApp = () => {
     const result = [];
     parents.forEach(parent => {
       result.push(parent);
-      // Add children right after parent
       const children = userAccounts
         .filter(a => a.parentAccount === parent.id)
         .sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -684,1326 +1159,669 @@ const BudgetApp = () => {
     return result;
   };
 
-  // Dashboard
-  const renderDashboard = () => (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-green-600 font-semibold">הכנסות</p>
-              <p className="text-2xl font-bold text-green-700">₪{summary.income.toFixed(2)}</p>
-            </div>
-            <TrendingUp className="text-green-600" size={32} />
-          </div>
-        </div>
-        <div className="bg-red-50 border-2 border-red-200 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-red-600 font-semibold">הוצאות</p>
-              <p className="text-2xl font-bold text-red-700">₪{summary.expense.toFixed(2)}</p>
-            </div>
-            <TrendingDown className="text-red-600" size={32} />
-          </div>
-        </div>
-        <div className={`${summary.balance >= 0 ? 'bg-green-100 border-green-300' : 'bg-red-100 border-red-300'} border-2 rounded-lg p-4`}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold">סיכום חודשי</p>
-              <p className={`text-2xl font-bold ${summary.balance >= 0 ? 'text-green-800' : 'text-red-800'}`}>
-                ₪{summary.balance.toFixed(2)}
-              </p>
-            </div>
-            <Wallet className={summary.balance >= 0 ? 'text-green-700' : 'text-red-700'} size={32} />
-          </div>
+  const getParentAccounts = (user) => {
+    return accounts.filter(a => a.user === user && a.parentAccount === null);
+  };
+
+  const getBillingDayText = (billingDay) => {
+    if (billingDay === null) return null;
+    if (billingDay === 0) return 'דיירקט';
+    return `חיוב ב-${billingDay} לחודש`;
+  };
+
+  // ========================================
+  // UI COMPONENTS
+  // ========================================
+
+  // Loading Screen
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center" dir="rtl">
+        <div className="text-center text-white">
+          <Loader2 className="w-16 h-16 animate-spin mx-auto mb-4" />
+          <p className="text-xl">טוען...</p>
         </div>
       </div>
+    );
+  }
 
-      <div className="bg-white rounded-lg shadow-md p-4">
-        <h3 className="text-lg font-bold mb-3 text-gray-700">סינון תצוגה</h3>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-          <select
-            className="border rounded p-2 text-sm"
-            value={filterOptions.period}
-            onChange={(e) => setFilterOptions({ ...filterOptions, period: e.target.value })}
-          >
-            <option value="monthly">חודשי</option>
-            <option value="yearly">שנתי</option>
-            <option value="custom">מותאם אישית</option>
-          </select>
-          {filterOptions.period === 'custom' && (
-            <>
-              <input
-                type="date"
-                className="border rounded p-2 text-sm"
-                value={filterOptions.startDate}
-                onChange={(e) => setFilterOptions({ ...filterOptions, startDate: e.target.value })}
-              />
-              <input
-                type="date"
-                className="border rounded p-2 text-sm"
-                value={filterOptions.endDate}
-                onChange={(e) => setFilterOptions({ ...filterOptions, endDate: e.target.value })}
-              />
-            </>
+  // Login/Register Screen
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center p-4" dir="rtl">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Wallet className="w-8 h-8 text-purple-600" />
+            </div>
+            <h1 className="text-2xl font-bold text-purple-800">ניהול תקציב משפחתי</h1>
+            <p className="text-gray-500 mt-2">נהלו את הכספים שלכם בקלות</p>
+          </div>
+
+          <div className="flex mb-6">
+            <button
+              onClick={() => { setAuthMode('login'); setAuthError(''); }}
+              className={`flex-1 py-3 text-center font-semibold transition-all ${
+                authMode === 'login' 
+                  ? 'bg-purple-600 text-white rounded-lg' 
+                  : 'text-gray-500 hover:text-purple-600'
+              }`}
+            >
+              התחברות
+            </button>
+            <button
+              onClick={() => { setAuthMode('register'); setAuthError(''); }}
+              className={`flex-1 py-3 text-center font-semibold transition-all ${
+                authMode === 'register' 
+                  ? 'bg-purple-600 text-white rounded-lg' 
+                  : 'text-gray-500 hover:text-purple-600'
+              }`}
+            >
+              הרשמה
+            </button>
+          </div>
+
+          {authError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+              {authError}
+            </div>
           )}
-          <select
-            className="border rounded p-2 text-sm"
-            value={filterOptions.user}
-            onChange={(e) => setFilterOptions({ ...filterOptions, user: e.target.value })}
-          >
-            <option value="all">כולם</option>
-            {familyMembers.map(member => (
-              <option key={member.id} value={member.name}>{member.name}</option>
-            ))}
-          </select>
+
+          <div className="space-y-4">
+            {authMode === 'register' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">שם</label>
+                  <input
+                    type="text"
+                    value={authForm.name}
+                    onChange={(e) => setAuthForm({ ...authForm, name: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="השם שלך"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">שם החשבון המשפחתי</label>
+                  <input
+                    type="text"
+                    value={authForm.familyName}
+                    onChange={(e) => setAuthForm({ ...authForm, familyName: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="לדוגמה: משפחת כהן"
+                  />
+                </div>
+              </>
+            )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
+              <input
+                type="email"
+                value={authForm.email}
+                onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                placeholder="your@email.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">סיסמה</label>
+              <input
+                type="password"
+                value={authForm.password}
+                onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                placeholder="••••••••"
+              />
+            </div>
+
+            <button
+              onClick={authMode === 'login' ? handleLogin : handleRegister}
+              disabled={isSaving}
+              className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {isSaving ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <LogIn className="w-5 h-5" />
+              )}
+              {authMode === 'login' ? 'התחבר' : 'הירשם'}
+            </button>
+          </div>
         </div>
       </div>
+    );
+  }
 
-      {Object.keys(expensesByCategory).length > 0 && (
-        <div className="bg-white rounded-lg shadow-md p-4">
-          <h3 className="text-lg font-bold mb-3 text-gray-700">התפלגות הוצאות לפי קטגוריות</h3>
-          <div className="space-y-2">
-            {Object.entries(expensesByCategory).map(([category, amount]) => {
-              const percentage = (amount / summary.expense) * 100;
-              return (
-                <div key={category} className="space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span>{category}</span>
-                    <span className="font-semibold">₪{amount.toFixed(2)} ({percentage.toFixed(1)}%)</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-3">
-                    <div
-                      className="bg-red-500 h-3 rounded-full"
-                      style={{ width: `${percentage}%` }}
-                    ></div>
-                  </div>
+  // Main App
+  return (
+    <div className="min-h-screen bg-gray-100" dir="rtl">
+      {/* Header */}
+      <header className="bg-gradient-to-r from-purple-600 to-blue-600 text-white p-4 shadow-lg">
+        <div className="container mx-auto flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-bold">ניהול תקציב משפחתי</h1>
+            <p className="text-purple-200 text-sm">{familyName}</p>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-purple-200">שלום, {currentUser?.name}</span>
+            <div className="relative">
+              <button
+                onClick={() => setShowShareMenu(!showShareMenu)}
+                className="bg-purple-500 hover:bg-purple-400 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+              >
+                <Share2 size={18} />
+                שיתוף
+              </button>
+              {showShareMenu && (
+                <div className="absolute left-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-2 z-50">
+                  <button
+                    onClick={() => generateInviteLink('invite')}
+                    className="w-full text-right px-4 py-2 text-gray-700 hover:bg-gray-100"
+                  >
+                    הזמנה לחשבון שלי
+                  </button>
+                  <button
+                    onClick={() => generateInviteLink('app')}
+                    className="w-full text-right px-4 py-2 text-gray-700 hover:bg-gray-100"
+                  >
+                    שיתוף האפליקציה
+                  </button>
                 </div>
-              );
-            })}
+              )}
+            </div>
+            <button
+              onClick={handleLogout}
+              className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded-lg transition-colors"
+            >
+              התנתק
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Share Dialog */}
+      {showShareDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold">
+                {shareType === 'invite' ? 'הזמנה לחשבון' : 'שיתוף האפליקציה'}
+              </h3>
+              <button onClick={() => setShowShareDialog(false)} className="text-gray-500 hover:text-gray-700">
+                <X size={24} />
+              </button>
+            </div>
+            <p className="text-gray-600 mb-4">
+              {shareType === 'invite' 
+                ? 'שלח את הקישור הזה למי שתרצה להזמין לחשבון המשפחתי שלך:'
+                : 'שתף את הקישור הזה כדי להמליץ על האפליקציה:'
+              }
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={inviteLink}
+                readOnly
+                className="flex-1 border rounded-lg p-3 bg-gray-50 text-sm"
+              />
+              <button
+                onClick={copyInviteLink}
+                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                  linkCopied ? 'bg-green-500 text-white' : 'bg-purple-600 text-white hover:bg-purple-700'
+                }`}
+              >
+                {linkCopied ? <Check size={18} /> : <Copy size={18} />}
+                {linkCopied ? 'הועתק!' : 'העתק'}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow-md p-4">
-        <h3 className="text-lg font-bold mb-3 text-gray-700">הוספה מהירה</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <select
-            className="border rounded p-2"
-            value={newTransaction.type}
-            onChange={(e) => setNewTransaction({ ...newTransaction, type: e.target.value, category: '' })}
-          >
-            <option value="expense">הוצאה</option>
-            <option value="income">הכנסה</option>
-          </select>
-          <input
-            type="number"
-            placeholder="סכום"
-            className="border rounded p-2"
-            value={newTransaction.amount}
-            onChange={(e) => setNewTransaction({ ...newTransaction, amount: e.target.value })}
-          />
-          <select
-            className="border rounded p-2"
-            value={newTransaction.category}
-            onChange={(e) => setNewTransaction({ ...newTransaction, category: e.target.value })}
-          >
-            <option value="">בחר קטגוריה</option>
-            {categories[newTransaction.type].map(cat => (
-              <option key={cat} value={cat}>{cat}</option>
+      {/* Navigation Tabs */}
+      <nav className="bg-white shadow-md">
+        <div className="container mx-auto">
+          <div className="flex overflow-x-auto">
+            {[
+              { id: 'dashboard', label: 'דשבורד', icon: TrendingUp },
+              { id: 'transactions', label: 'הוצאות והכנסות', icon: List },
+              { id: 'categories', label: 'קטגוריות', icon: Tag },
+              { id: 'sources', label: 'מקורות כספיים', icon: Wallet },
+              { id: 'members', label: 'משתמשים', icon: Users },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-6 py-4 font-medium transition-colors whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'text-purple-600 border-b-2 border-purple-600 bg-purple-50'
+                    : 'text-gray-600 hover:text-purple-600 hover:bg-gray-50'
+                }`}
+              >
+                <tab.icon size={20} />
+                {tab.label}
+              </button>
             ))}
-          </select>
-          <input
-            type="date"
-            className="border rounded p-2"
-            value={newTransaction.date}
-            onChange={(e) => setNewTransaction({ ...newTransaction, date: e.target.value })}
-          />
-          <select
-            className="border rounded p-2"
-            value={newTransaction.user}
-            onChange={(e) => setNewTransaction({ ...newTransaction, user: e.target.value, account: '' })}
-          >
-            <option value="">בחר משתמש</option>
-            {familyMembers.map(member => (
-              <option key={member.id} value={member.name}>{member.name}</option>
-            ))}
-          </select>
-          <select
-            className="border rounded p-2"
-            value={newTransaction.account}
-            onChange={(e) => setNewTransaction({ ...newTransaction, account: e.target.value })}
-          >
-            <option value="">בחר {newTransaction.type === 'income' ? 'יעד' : 'מקור'}</option>
-            {accounts.filter(a => a.user === newTransaction.user).map(account => (
-              <option key={account.id} value={account.id}>{account.name}</option>
-            ))}
-          </select>
-          <input
-            type="text"
-            placeholder="הערה (אופציונלי)"
-            className="border rounded p-2 md:col-span-2"
-            value={newTransaction.note}
-            onChange={(e) => setNewTransaction({ ...newTransaction, note: e.target.value })}
-          />
-          <div className="flex items-center space-x-2 space-x-reverse">
-            <input
-              type="checkbox"
-              id="recurring"
-              checked={newTransaction.isRecurring}
-              onChange={(e) => setNewTransaction({ ...newTransaction, isRecurring: e.target.checked })}
-            />
-            <label htmlFor="recurring" className="text-sm">הוצאה קבועה</label>
           </div>
-          {newTransaction.isRecurring && (
-            <select
-              className="border rounded p-2"
-              value={newTransaction.frequency}
-              onChange={(e) => setNewTransaction({ ...newTransaction, frequency: e.target.value })}
-            >
-              <option value="daily">יומי</option>
-              <option value="weekly">שבועי</option>
-              <option value="monthly">חודשי</option>
-              <option value="yearly">שנתי</option>
-            </select>
-          )}
         </div>
-        <button
-          onClick={addTransaction}
-          className="mt-4 w-full bg-blue-600 text-white rounded-lg py-2 font-semibold hover:bg-blue-700 flex items-center justify-center"
-        >
-          <PlusCircle className="ml-2" size={20} />
-          הוסף
-        </button>
-      </div>
+      </nav>
+
+      {/* Main Content */}
+      <main className="container mx-auto p-4">
+        {activeTab === 'dashboard' && renderDashboard()}
+        {activeTab === 'transactions' && renderTransactions()}
+        {activeTab === 'categories' && renderCategories()}
+        {activeTab === 'sources' && renderSources()}
+        {activeTab === 'members' && renderMembers()}
+      </main>
     </div>
   );
 
-  // Categories
-  const renderCategories = () => (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-4">
-        <h3 className="text-lg font-bold mb-3 text-gray-700">
-          {editingCategory ? 'ערוך קטגוריה' : 'הוסף קטגוריה חדשה'}
-        </h3>
-        <div className="flex gap-2">
-          <select
-            className="border rounded p-2"
-            value={newCategoryType}
-            onChange={(e) => setNewCategoryType(e.target.value)}
-            disabled={!!editingCategory}
-          >
-            <option value="expense">הוצאה</option>
-            <option value="income">הכנסה</option>
-          </select>
-          <input
-            type="text"
-            placeholder="שם קטגוריה"
-            className="border rounded p-2 flex-1"
-            value={newCategoryName}
-            onChange={(e) => setNewCategoryName(e.target.value)}
-          />
-          {editingCategory ? (
-            <>
-              <button
-                onClick={saveEditCategory}
-                className="bg-green-600 text-white px-4 rounded hover:bg-green-700 flex items-center gap-1"
-              >
-                <Check size={18} />
-                שמור
-              </button>
-              <button
-                onClick={() => { setEditingCategory(null); setNewCategoryName(''); }}
-                className="bg-red-500 text-white px-4 rounded hover:bg-red-600 flex items-center gap-1"
-              >
-                <X size={18} />
-                ביטול
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={addCategory}
-              className="bg-blue-600 text-white px-4 rounded hover:bg-blue-700"
-            >
-              הוסף
-            </button>
-          )}
-        </div>
-      </div>
+  // ========================================
+  // RENDER FUNCTIONS
+  // ========================================
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white rounded-lg shadow-md p-4">
-          <h3 className="text-lg font-bold mb-3 text-red-700">קטגוריות הוצאות</h3>
-          <div className="space-y-2">
-            {categories.expense.map((cat, index) => (
-              <div key={cat} className="flex justify-between items-center border-b pb-2">
-                <span>{cat}</span>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => moveCategory('expense', cat, 'up')}
-                    disabled={index === 0}
-                    className={`p-1 ${index === 0 ? 'text-gray-300' : 'text-gray-600 hover:text-gray-800'}`}
-                  >
-                    <ArrowUp size={16} />
-                  </button>
-                  <button
-                    onClick={() => moveCategory('expense', cat, 'down')}
-                    disabled={index === categories.expense.length - 1}
-                    className={`p-1 ${index === categories.expense.length - 1 ? 'text-gray-300' : 'text-gray-600 hover:text-gray-800'}`}
-                  >
-                    <ArrowDown size={16} />
-                  </button>
-                  <button
-                    onClick={() => startEditCategory('expense', cat)}
-                    className="text-blue-500 hover:text-blue-700 p-1"
-                  >
-                    <Edit2 size={16} />
-                  </button>
-                  <button
-                    onClick={() => deleteCategory('expense', cat)}
-                    className="text-red-500 hover:text-red-700 p-1"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-md p-4">
-          <h3 className="text-lg font-bold mb-3 text-green-700">קטגוריות הכנסות</h3>
-          <div className="space-y-2">
-            {categories.income.map((cat, index) => (
-              <div key={cat} className="flex justify-between items-center border-b pb-2">
-                <span>{cat}</span>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => moveCategory('income', cat, 'up')}
-                    disabled={index === 0}
-                    className={`p-1 ${index === 0 ? 'text-gray-300' : 'text-gray-600 hover:text-gray-800'}`}
-                  >
-                    <ArrowUp size={16} />
-                  </button>
-                  <button
-                    onClick={() => moveCategory('income', cat, 'down')}
-                    disabled={index === categories.income.length - 1}
-                    className={`p-1 ${index === categories.income.length - 1 ? 'text-gray-300' : 'text-gray-600 hover:text-gray-800'}`}
-                  >
-                    <ArrowDown size={16} />
-                  </button>
-                  <button
-                    onClick={() => startEditCategory('income', cat)}
-                    className="text-blue-500 hover:text-blue-700 p-1"
-                  >
-                    <Edit2 size={16} />
-                  </button>
-                  <button
-                    onClick={() => deleteCategory('income', cat)}
-                    className="text-red-500 hover:text-red-700 p-1"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  // Transactions
-  const renderTransactions = () => {
-    const expenses = sortTransactions(summary.filtered.filter(t => t.type === 'expense'), sortConfig);
-    const incomes = sortTransactions(summary.filtered.filter(t => t.type === 'income'), sortConfig);
-
-    const getSortIndicator = (key) => {
-      if (sortConfig.key !== key) return null;
-      return sortConfig.direction === 'ascending' ? ' ▲' : ' ▼';
-    };
-
-    const renderTable = (items, type) => {
-      const isExpense = type === 'expense';
-      
-      return (
-        <div className="bg-white rounded-lg shadow-md p-4">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className={`text-lg font-bold ${isExpense ? 'text-red-700' : 'text-green-700'}`}>
-              {isExpense ? 'הוצאות' : 'הכנסות'}
-            </h3>
-            <button
-              onClick={() => startInlineAdd(type)}
-              className={`flex items-center gap-1 px-3 py-1 rounded text-white text-sm ${
-                isExpense ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'
-              }`}
-            >
-              <PlusCircle size={16} />
-              {isExpense ? 'הוספת הוצאה' : 'הוספת הכנסה'}
-            </button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="p-2 text-right cursor-pointer hover:bg-gray-200" onClick={() => requestSort('date')}>
-                    תאריך{getSortIndicator('date')}
-                  </th>
-                  <th className="p-2 text-right cursor-pointer hover:bg-gray-200" onClick={() => requestSort('category')}>
-                    קטגוריה{getSortIndicator('category')}
-                  </th>
-                  <th className="p-2 text-right">סכום</th>
-                  <th className="p-2 text-right cursor-pointer hover:bg-gray-200" onClick={() => requestSort('user')}>
-                    משתמש{getSortIndicator('user')}
-                  </th>
-                  <th className="p-2 text-right cursor-pointer hover:bg-gray-200" onClick={() => requestSort('account')}>
-                    {isExpense ? 'מקור' : 'יעד'}{getSortIndicator('account')}
-                  </th>
-                  <th className="p-2 text-right">הערה</th>
-                  <th className="p-2 text-right">קבוע</th>
-                  <th className="p-2 text-right">פעולות</th>
-                </tr>
-              </thead>
-              <tbody>
-                {/* Inline add row */}
-                {isAddingInline === type && (
-                  <tr className="border-b bg-green-50">
-                    <td className="p-2">
-                      <input
-                        type="date"
-                        value={inlineTransaction.date}
-                        onChange={(e) => setInlineTransaction({ ...inlineTransaction, date: e.target.value })}
-                        className="border rounded p-1 w-full"
-                      />
-                    </td>
-                    <td className="p-2">
-                      <select
-                        value={inlineTransaction.category}
-                        onChange={(e) => setInlineTransaction({ ...inlineTransaction, category: e.target.value })}
-                        className="border rounded p-1 w-full"
-                      >
-                        <option value="">בחר</option>
-                        {categories[type].map(cat => (
-                          <option key={cat} value={cat}>{cat}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="p-2">
-                      <input
-                        type="number"
-                        value={inlineTransaction.amount}
-                        onChange={(e) => setInlineTransaction({ ...inlineTransaction, amount: e.target.value })}
-                        className="border rounded p-1 w-full"
-                        placeholder="סכום"
-                      />
-                    </td>
-                    <td className="p-2">
-                      <select
-                        value={inlineTransaction.user}
-                        onChange={(e) => setInlineTransaction({ ...inlineTransaction, user: e.target.value, account: '' })}
-                        className="border rounded p-1 w-full"
-                      >
-                        <option value="">בחר</option>
-                        {familyMembers.map(member => (
-                          <option key={member.id} value={member.name}>{member.name}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="p-2">
-                      <select
-                        value={inlineTransaction.account}
-                        onChange={(e) => setInlineTransaction({ ...inlineTransaction, account: e.target.value })}
-                        className="border rounded p-1 w-full"
-                      >
-                        <option value="">בחר</option>
-                        {accounts.filter(a => a.user === inlineTransaction.user).map(acc => (
-                          <option key={acc.id} value={acc.id}>{acc.name}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="p-2">
-                      <input
-                        type="text"
-                        value={inlineTransaction.note}
-                        onChange={(e) => setInlineTransaction({ ...inlineTransaction, note: e.target.value })}
-                        className="border rounded p-1 w-full"
-                        placeholder="הערה"
-                      />
-                    </td>
-                    <td className="p-2">
-                      <input
-                        type="checkbox"
-                        checked={inlineTransaction.isRecurring}
-                        onChange={(e) => setInlineTransaction({ ...inlineTransaction, isRecurring: e.target.checked })}
-                      />
-                    </td>
-                    <td className="p-2">
-                      <div className="flex gap-1">
-                        <button onClick={saveInlineTransaction} className="text-green-600 hover:text-green-800">
-                          <Check size={16} />
-                        </button>
-                        <button onClick={cancelInlineAdd} className="text-red-600 hover:text-red-800">
-                          <X size={16} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-                {items.map(t => {
-                  const isEditing = isEditingTransaction === t.id;
-                  
-                  if (isEditing) {
-                    return (
-                      <tr key={t.id} className="border-b bg-blue-50">
-                        <td className="p-2">
-                          <input
-                            type="date"
-                            value={editingTransaction.date}
-                            onChange={(e) => setEditingTransaction({ ...editingTransaction, date: e.target.value })}
-                            className="border rounded p-1 w-full"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <select
-                            value={editingTransaction.category}
-                            onChange={(e) => setEditingTransaction({ ...editingTransaction, category: e.target.value })}
-                            className="border rounded p-1 w-full"
-                          >
-                            {categories[editingTransaction.type].map(cat => (
-                              <option key={cat} value={cat}>{cat}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="number"
-                            value={editingTransaction.amount}
-                            onChange={(e) => setEditingTransaction({ ...editingTransaction, amount: e.target.value })}
-                            className="border rounded p-1 w-full"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <select
-                            value={editingTransaction.user}
-                            onChange={(e) => setEditingTransaction({ ...editingTransaction, user: e.target.value, account: '' })}
-                            className="border rounded p-1 w-full"
-                          >
-                            {familyMembers.map(member => (
-                              <option key={member.id} value={member.name}>{member.name}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="p-2">
-                          <select
-                            value={editingTransaction.account}
-                            onChange={(e) => setEditingTransaction({ ...editingTransaction, account: e.target.value })}
-                            className="border rounded p-1 w-full"
-                          >
-                            <option value="">בחר</option>
-                            {accounts.filter(a => a.user === editingTransaction.user).map(acc => (
-                              <option key={acc.id} value={acc.id}>{acc.name}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="text"
-                            value={editingTransaction.note}
-                            onChange={(e) => setEditingTransaction({ ...editingTransaction, note: e.target.value })}
-                            className="border rounded p-1 w-full"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="checkbox"
-                            checked={editingTransaction.isRecurring}
-                            onChange={(e) => setEditingTransaction({ ...editingTransaction, isRecurring: e.target.checked })}
-                          />
-                        </td>
-                        <td className="p-2">
-                          <div className="flex gap-1">
-                            <button onClick={saveEditTransaction} className="text-green-600 hover:text-green-800">
-                              <Check size={16} />
-                            </button>
-                            <button onClick={cancelEditTransaction} className="text-red-600 hover:text-red-800">
-                              <X size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  }
-
-                  return (
-                    <tr key={t.id} className="border-b hover:bg-gray-50">
-                      <td className="p-2">{new Date(t.date).toLocaleDateString('he-IL')}</td>
-                      <td className="p-2">{t.category}</td>
-                      <td className={`p-2 font-semibold ${isExpense ? 'text-red-600' : 'text-green-600'}`}>
-                        ₪{t.amount.toFixed(2)}
-                      </td>
-                      <td className="p-2">
-                        <span className="flex items-center">
-                          <span className={`w-2 h-2 rounded-full ${getUserColor(t.user)} ml-1`}></span>
-                          {t.user}
-                        </span>
-                      </td>
-                      <td className="p-2">{accounts.find(a => a.id === parseInt(t.account))?.name}</td>
-                      <td className="p-2 text-xs text-gray-600">{t.note}</td>
-                      <td className="p-2">{t.isRecurring ? `✓ (${t.frequency})` : '✗'}</td>
-                      <td className="p-2">
-                        <div className="flex gap-1">
-                          <button onClick={() => startEditTransaction(t)} className="text-blue-500 hover:text-blue-700">
-                            <Edit2 size={16} />
-                          </button>
-                          <button onClick={() => deleteTransaction(t.id)} className="text-red-500 hover:text-red-700">
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      );
-    };
-
+  function renderDashboard() {
     return (
       <div className="space-y-6">
-        {/* Filter Options - זהה לדשבורד */}
-        <div className="bg-white rounded-lg shadow-md p-4">
-          <h3 className="text-lg font-bold mb-3 text-gray-700">סינון תצוגה</h3>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-            <select
-              className="border rounded p-2 text-sm"
-              value={filterOptions.period}
-              onChange={(e) => setFilterOptions({ ...filterOptions, period: e.target.value })}
-            >
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-green-50 border-2 border-green-200 rounded-xl p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-green-600 text-sm font-medium">הכנסות</p>
+                <p className="text-3xl font-bold text-green-700">₪{summary.income.toLocaleString()}</p>
+              </div>
+              <TrendingUp className="text-green-500" size={40} />
+            </div>
+          </div>
+          <div className="bg-red-50 border-2 border-red-200 rounded-xl p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-red-600 text-sm font-medium">הוצאות</p>
+                <p className="text-3xl font-bold text-red-700">₪{summary.expense.toLocaleString()}</p>
+              </div>
+              <TrendingDown className="text-red-500" size={40} />
+            </div>
+          </div>
+          <div className={`border-2 rounded-xl p-6 ${summary.balance >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className={`text-sm font-medium ${summary.balance >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>סיכום חודשי</p>
+                <p className={`text-3xl font-bold ${summary.balance >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>₪{summary.balance.toLocaleString()}</p>
+              </div>
+              <Wallet className={summary.balance >= 0 ? 'text-blue-500' : 'text-orange-500'} size={40} />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-md p-4">
+          <h3 className="font-bold text-gray-700 mb-3">סינון תצוגה</h3>
+          <div className="flex flex-wrap gap-3">
+            <select value={filterOptions.period} onChange={(e) => setFilterOptions({ ...filterOptions, period: e.target.value })} className="border rounded-lg p-2">
               <option value="monthly">חודשי</option>
               <option value="yearly">שנתי</option>
               <option value="custom">מותאם אישית</option>
             </select>
             {filterOptions.period === 'custom' && (
               <>
-                <input
-                  type="date"
-                  className="border rounded p-2 text-sm"
-                  value={filterOptions.startDate}
-                  onChange={(e) => setFilterOptions({ ...filterOptions, startDate: e.target.value })}
-                  placeholder="מתאריך"
-                />
-                <input
-                  type="date"
-                  className="border rounded p-2 text-sm"
-                  value={filterOptions.endDate}
-                  onChange={(e) => setFilterOptions({ ...filterOptions, endDate: e.target.value })}
-                  placeholder="עד תאריך"
-                />
+                <input type="date" value={filterOptions.startDate} onChange={(e) => setFilterOptions({ ...filterOptions, startDate: e.target.value })} className="border rounded-lg p-2" />
+                <input type="date" value={filterOptions.endDate} onChange={(e) => setFilterOptions({ ...filterOptions, endDate: e.target.value })} className="border rounded-lg p-2" />
               </>
             )}
-            <select
-              className="border rounded p-2 text-sm"
-              value={filterOptions.user}
-              onChange={(e) => setFilterOptions({ ...filterOptions, user: e.target.value })}
-            >
+            <select value={filterOptions.user} onChange={(e) => setFilterOptions({ ...filterOptions, user: e.target.value })} className="border rounded-lg p-2">
               <option value="all">כולם</option>
-              {familyMembers.map(member => (
-                <option key={member.id} value={member.name}>{member.name}</option>
-              ))}
+              {familyMembers.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
             </select>
           </div>
         </div>
-        
-        {renderTable(expenses, 'expense')}
-        {renderTable(incomes, 'income')}
+
+        {Object.keys(expensesByCategory).length > 0 && (
+          <div className="bg-white rounded-xl shadow-md p-4">
+            <h3 className="font-bold text-gray-700 mb-4">התפלגות הוצאות לפי קטגוריות</h3>
+            <div className="space-y-3">
+              {Object.entries(expensesByCategory).sort((a, b) => b[1] - a[1]).map(([category, amount]) => {
+                const percentage = (amount / summary.expense) * 100;
+                return (
+                  <div key={category}>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="font-medium">{category}</span>
+                      <span>₪{amount.toLocaleString()} ({percentage.toFixed(1)}%)</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-3">
+                      <div className="bg-gradient-to-r from-red-400 to-red-600 h-3 rounded-full transition-all" style={{ width: `${percentage}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="bg-white rounded-xl shadow-md p-4">
+          <h3 className="font-bold text-gray-700 mb-4">הוספה מהירה</h3>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <select value={newTransaction.type} onChange={(e) => setNewTransaction({ ...newTransaction, type: e.target.value, category: '' })} className="border rounded-lg p-2">
+              <option value="expense">הוצאה</option>
+              <option value="income">הכנסה</option>
+            </select>
+            <input type="number" placeholder="סכום" value={newTransaction.amount} onChange={(e) => setNewTransaction({ ...newTransaction, amount: e.target.value })} className="border rounded-lg p-2" />
+            <select value={newTransaction.category} onChange={(e) => setNewTransaction({ ...newTransaction, category: e.target.value })} className="border rounded-lg p-2">
+              <option value="">בחר קטגוריה</option>
+              {categories[newTransaction.type].map(cat => <option key={cat} value={cat}>{cat}</option>)}
+            </select>
+            <input type="date" value={newTransaction.date} onChange={(e) => setNewTransaction({ ...newTransaction, date: e.target.value })} className="border rounded-lg p-2" />
+            <select value={newTransaction.user} onChange={(e) => setNewTransaction({ ...newTransaction, user: e.target.value, account: '' })} className="border rounded-lg p-2">
+              <option value="">בחר משתמש</option>
+              {familyMembers.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+            </select>
+            <select value={newTransaction.account} onChange={(e) => setNewTransaction({ ...newTransaction, account: e.target.value })} className="border rounded-lg p-2">
+              <option value="">בחר מקור</option>
+              {accounts.filter(a => a.user === newTransaction.user).map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
+            </select>
+            <input type="text" placeholder="הערה (אופציונלי)" value={newTransaction.note} onChange={(e) => setNewTransaction({ ...newTransaction, note: e.target.value })} className="border rounded-lg p-2" />
+            <button onClick={addTransaction} disabled={isSaving} className="bg-purple-600 text-white rounded-lg p-2 hover:bg-purple-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
+              {isSaving ? <Loader2 className="animate-spin" size={20} /> : <PlusCircle size={20} />}
+              הוסף
+            </button>
+          </div>
+        </div>
       </div>
     );
-  };
+  }
 
-  // Sources
-  const renderSources = () => {
-    // Get parent accounts (accounts without parentAccount) for a specific user
-    const getParentAccounts = (userFilter) => {
-      return accounts.filter(a => a.user === userFilter && a.parentAccount === null);
-    };
+  function renderTransactions() {
+    const sortedExpenses = sortTransactions(summary.filtered.filter(t => t.type === 'expense'), sortConfig);
+    const sortedIncomes = sortTransactions(summary.filtered.filter(t => t.type === 'income'), sortConfig);
 
-    // Get billing day display text
-    const getBillingDayText = (billingDay) => {
-      if (billingDay === null) return null;
-      if (billingDay === 0) return 'דיירקט';
-      return `חיוב ב-${billingDay} לחודש`;
-    };
+    const renderTable = (items, type) => (
+      <div className="bg-white rounded-xl shadow-md overflow-hidden">
+        <div className="p-4 border-b flex justify-between items-center">
+          <h3 className={`font-bold text-lg ${type === 'expense' ? 'text-red-600' : 'text-green-600'}`}>
+            {type === 'expense' ? 'הוצאות' : 'הכנסות'}
+          </h3>
+          <button onClick={() => startInlineAdd(type)} className={`flex items-center gap-1 px-3 py-1 rounded-lg text-white text-sm ${type === 'expense' ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'}`}>
+            <PlusCircle size={16} /> הוסף
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="p-3 text-right cursor-pointer hover:bg-gray-100" onClick={() => requestSort('date')}>תאריך</th>
+                <th className="p-3 text-right cursor-pointer hover:bg-gray-100" onClick={() => requestSort('category')}>קטגוריה</th>
+                <th className="p-3 text-right">סכום</th>
+                <th className="p-3 text-right cursor-pointer hover:bg-gray-100" onClick={() => requestSort('user')}>משתמש</th>
+                <th className="p-3 text-right">מקור</th>
+                <th className="p-3 text-right">הערה</th>
+                <th className="p-3 text-right">פעולות</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isAddingInline === type && (
+                <tr className="bg-yellow-50">
+                  <td className="p-2"><input type="date" value={inlineTransaction.date} onChange={(e) => setInlineTransaction({...inlineTransaction, date: e.target.value})} className="border rounded p-1 w-full" /></td>
+                  <td className="p-2">
+                    <select value={inlineTransaction.category} onChange={(e) => setInlineTransaction({...inlineTransaction, category: e.target.value})} className="border rounded p-1 w-full">
+                      <option value="">בחר</option>
+                      {categories[type].map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
+                  </td>
+                  <td className="p-2"><input type="number" value={inlineTransaction.amount} onChange={(e) => setInlineTransaction({...inlineTransaction, amount: e.target.value})} className="border rounded p-1 w-full" placeholder="סכום" /></td>
+                  <td className="p-2">
+                    <select value={inlineTransaction.user} onChange={(e) => setInlineTransaction({...inlineTransaction, user: e.target.value, account: ''})} className="border rounded p-1 w-full">
+                      <option value="">בחר</option>
+                      {familyMembers.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                    </select>
+                  </td>
+                  <td className="p-2">
+                    <select value={inlineTransaction.account} onChange={(e) => setInlineTransaction({...inlineTransaction, account: e.target.value})} className="border rounded p-1 w-full">
+                      <option value="">בחר</option>
+                      {accounts.filter(a => a.user === inlineTransaction.user).map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
+                    </select>
+                  </td>
+                  <td className="p-2"><input type="text" value={inlineTransaction.note} onChange={(e) => setInlineTransaction({...inlineTransaction, note: e.target.value})} className="border rounded p-1 w-full" /></td>
+                  <td className="p-2">
+                    <div className="flex gap-1">
+                      <button onClick={saveInlineTransaction} disabled={isSaving} className="text-green-600 hover:text-green-800"><Check size={18} /></button>
+                      <button onClick={cancelInlineAdd} className="text-red-600 hover:text-red-800"><X size={18} /></button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {items.map(t => (
+                <tr key={t.id} className="border-t hover:bg-gray-50">
+                  {isEditingTransaction === t.id ? (
+                    <>
+                      <td className="p-2"><input type="date" value={editingTransaction.date} onChange={(e) => setEditingTransaction({...editingTransaction, date: e.target.value})} className="border rounded p-1 w-full" /></td>
+                      <td className="p-2"><select value={editingTransaction.category} onChange={(e) => setEditingTransaction({...editingTransaction, category: e.target.value})} className="border rounded p-1 w-full">{categories[type].map(cat => <option key={cat} value={cat}>{cat}</option>)}</select></td>
+                      <td className="p-2"><input type="number" value={editingTransaction.amount} onChange={(e) => setEditingTransaction({...editingTransaction, amount: e.target.value})} className="border rounded p-1 w-full" /></td>
+                      <td className="p-2"><select value={editingTransaction.user} onChange={(e) => setEditingTransaction({...editingTransaction, user: e.target.value})} className="border rounded p-1 w-full">{familyMembers.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}</select></td>
+                      <td className="p-2"><select value={editingTransaction.account} onChange={(e) => setEditingTransaction({...editingTransaction, account: e.target.value})} className="border rounded p-1 w-full">{accounts.filter(a => a.user === editingTransaction.user).map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}</select></td>
+                      <td className="p-2"><input type="text" value={editingTransaction.note || ''} onChange={(e) => setEditingTransaction({...editingTransaction, note: e.target.value})} className="border rounded p-1 w-full" /></td>
+                      <td className="p-2"><div className="flex gap-1"><button onClick={saveEditTransaction} className="text-green-600"><Check size={18} /></button><button onClick={cancelEditTransaction} className="text-red-600"><X size={18} /></button></div></td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="p-3">{t.date}</td>
+                      <td className="p-3">{t.category}</td>
+                      <td className={`p-3 font-bold ${type === 'expense' ? 'text-red-600' : 'text-green-600'}`}>₪{t.amount.toLocaleString()}</td>
+                      <td className="p-3"><span className={`px-2 py-1 rounded-full text-white text-xs ${getUserColor(t.user)}`}>{t.user}</span></td>
+                      <td className="p-3">{accounts.find(a => a.id === t.account)?.name || '-'}</td>
+                      <td className="p-3 text-gray-500">{t.note || '-'}</td>
+                      <td className="p-3"><div className="flex gap-1"><button onClick={() => startEditTransaction(t)} className="text-blue-600"><Edit2 size={18} /></button><button onClick={() => deleteTransaction(t.id)} className="text-red-600"><Trash2 size={18} /></button></div></td>
+                    </>
+                  )}
+                </tr>
+              ))}
+              {items.length === 0 && !isAddingInline && <tr><td colSpan="7" className="p-4 text-center text-gray-500">אין נתונים</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
 
     return (
       <div className="space-y-6">
-        {/* Add new account button */}
-        <div className="bg-white rounded-lg shadow-md p-4">
-          {!isAddingAccount ? (
-            <button
-              onClick={() => setIsAddingAccount(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              <PlusCircle size={18} />
-              הוספת מקור כספי חדש
-            </button>
-          ) : (
-            <div className="space-y-4">
-              <h3 className="text-lg font-bold text-gray-700">הוספת מקור כספי חדש</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                <input
-                  type="text"
-                  placeholder="שם המקור"
-                  className="border rounded p-2"
-                  value={newAccount.name}
-                  onChange={(e) => setNewAccount({ ...newAccount, name: e.target.value })}
-                />
-                <select
-                  className="border rounded p-2"
-                  value={newAccount.user}
-                  onChange={(e) => setNewAccount({ ...newAccount, user: e.target.value, parentAccount: null })}
-                >
-                  <option value="">בחר משתמש</option>
-                  {familyMembers.map(member => (
-                    <option key={member.id} value={member.name}>{member.name}</option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  placeholder="יתרה התחלתית"
-                  className="border rounded p-2"
-                  value={newAccount.balance}
-                  onChange={(e) => setNewAccount({ ...newAccount, balance: e.target.value })}
-                />
-                <select
-                  className="border rounded p-2"
-                  value={newAccount.parentAccount || ''}
-                  onChange={(e) => setNewAccount({ 
-                    ...newAccount, 
-                    parentAccount: e.target.value ? parseInt(e.target.value) : null 
-                  })}
-                >
-                  <option value="">מקור עצמאי (ללא חשבון אב)</option>
-                  {getParentAccounts(newAccount.user).map(pa => (
-                    <option key={pa.id} value={pa.id}>משויך ל: {pa.name}</option>
-                  ))}
-                </select>
-                <select
-                  className="border rounded p-2"
-                  value={newAccount.billingDay === null ? 'none' : newAccount.billingDay === 0 ? 'direct' : newAccount.billingDay}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setNewAccount({ 
-                      ...newAccount, 
-                      billingDay: val === 'none' ? null : val === 'direct' ? 0 : parseInt(val)
-                    });
-                  }}
-                >
-                  <option value="none">לא כרטיס אשראי</option>
-                  <option value="direct">דיירקט (מתאפס בכל פעולה)</option>
-                  <optgroup label="מועד חיוב חודשי">
-                    {[...Array(31)].map((_, i) => (
-                      <option key={i + 1} value={i + 1}>{i + 1} לחודש</option>
-                    ))}
-                  </optgroup>
-                </select>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={addNewAccount}
-                  className="flex items-center gap-1 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                >
-                  <Check size={18} />
-                  הוסף
-                </button>
-                <button
-                  onClick={() => {
-                    setIsAddingAccount(false);
-                    setNewAccount({ name: '', user: '', balance: 0, parentAccount: null, billingDay: null });
-                  }}
-                  className="flex items-center gap-1 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-                >
-                  <X size={18} />
-                  ביטול
-                </button>
-              </div>
-            </div>
-          )}
+        <div className="bg-white rounded-xl shadow-md p-4">
+          <h3 className="font-bold text-gray-700 mb-3">סינון</h3>
+          <div className="flex flex-wrap gap-3">
+            <select value={filterOptions.period} onChange={(e) => setFilterOptions({...filterOptions, period: e.target.value})} className="border rounded-lg p-2">
+              <option value="monthly">חודשי</option>
+              <option value="yearly">שנתי</option>
+              <option value="custom">מותאם אישית</option>
+            </select>
+            {filterOptions.period === 'custom' && (
+              <>
+                <input type="date" value={filterOptions.startDate} onChange={(e) => setFilterOptions({...filterOptions, startDate: e.target.value})} className="border rounded-lg p-2" />
+                <input type="date" value={filterOptions.endDate} onChange={(e) => setFilterOptions({...filterOptions, endDate: e.target.value})} className="border rounded-lg p-2" />
+              </>
+            )}
+            <select value={filterOptions.user} onChange={(e) => setFilterOptions({...filterOptions, user: e.target.value})} className="border rounded-lg p-2">
+              <option value="all">כולם</option>
+              {familyMembers.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+            </select>
+          </div>
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {familyMembers.map((member, memberIndex) => {
-            const user = member.name;
-            const sortedAccounts = getSortedAccountsForUser(user);
-            const parentAccounts = getParentAccounts(user);
-            const parentAccountsCount = parentAccounts.length;
-            const headerColors = ['#3b82f6', '#ec4899', '#10b981', '#8b5cf6', '#f97316', '#14b8a6'];
-            
-            return (
-              <div key={member.id} className="bg-white rounded-lg shadow-md p-4">
-                <h3 className="text-lg font-bold mb-3" style={{ color: headerColors[memberIndex % headerColors.length] }}>
-                  מקורות כספיים - {user}
-                </h3>
-                <div className="space-y-2">
-                  {sortedAccounts.map((account, idx) => {
-                    const parentAccount = account.parentAccount 
-                      ? accounts.find(a => a.id === account.parentAccount) 
-                      : null;
-                    const isChild = account.parentAccount !== null;
-                    const parentIndex = parentAccounts.findIndex(p => p.id === account.id);
-                    const billingText = getBillingDayText(account.billingDay);
-                    
-                    return (
-                      <div 
-                        key={account.id} 
-                        className={`border rounded p-3 ${isChild ? 'mr-6 border-r-4 border-r-gray-300 bg-gray-50' : 'bg-white'}`}
-                      >
-                        <div className="flex justify-between items-center">
-                          <div className="flex items-center gap-2">
-                            {/* Move buttons for parent accounts only */}
-                            {!isChild && (
-                              <div className="flex flex-col">
-                                <button
-                                  onClick={() => moveAccount(user, account.id, 'up')}
-                                  disabled={parentIndex === 0}
-                                  className={`p-0.5 ${parentIndex === 0 ? 'text-gray-300' : 'text-gray-500 hover:text-gray-700'}`}
-                                >
-                                  <ArrowUp size={14} />
-                                </button>
-                                <button
-                                  onClick={() => moveAccount(user, account.id, 'down')}
-                                  disabled={parentIndex === parentAccountsCount - 1}
-                                  className={`p-0.5 ${parentIndex === parentAccountsCount - 1 ? 'text-gray-300' : 'text-gray-500 hover:text-gray-700'}`}
-                                >
-                                  <ArrowDown size={14} />
-                                </button>
-                              </div>
-                            )}
-                            <div>
-                              <span className={`font-semibold ${isChild ? 'text-sm' : ''}`}>{account.name}</span>
-                              {parentAccount && (
-                                <span className="text-xs text-gray-500 block">
-                                  ← משויך ל{parentAccount.name}
-                                </span>
-                              )}
-                              {billingText && (
-                                <span className="text-xs text-blue-500 block">
-                                  {billingText}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          
-                          {editingAccount?.id === account.id ? (
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <input
-                                type="text"
-                                className="border rounded p-1 text-sm w-28"
-                                value={editingAccount.name}
-                                onChange={(e) => setEditingAccount({
-                                  ...editingAccount,
-                                  name: e.target.value
-                                })}
-                                placeholder="שם"
-                              />
-                              <input
-                                type="number"
-                                className="border rounded p-1 text-sm w-20"
-                                value={newAccountBalance}
-                                onChange={(e) => setNewAccountBalance(e.target.value)}
-                                placeholder="יתרה"
-                              />
-                              <select
-                                className="border rounded p-1 text-xs"
-                                value={editingAccount.parentAccount || ''}
-                                onChange={(e) => setEditingAccount({
-                                  ...editingAccount,
-                                  parentAccount: e.target.value ? parseInt(e.target.value) : null
-                                })}
-                              >
-                                <option value="">עצמאי</option>
-                                {parentAccounts
-                                  .filter(pa => pa.id !== account.id)
-                                  .map(pa => (
-                                    <option key={pa.id} value={pa.id}>{pa.name}</option>
-                                  ))
-                                }
-                              </select>
-                              <select
-                                className="border rounded p-1 text-xs"
-                                value={editingAccount.billingDay === null ? 'none' : editingAccount.billingDay === 0 ? 'direct' : editingAccount.billingDay}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setEditingAccount({ 
-                                    ...editingAccount, 
-                                    billingDay: val === 'none' ? null : val === 'direct' ? 0 : parseInt(val)
-                                  });
-                                }}
-                              >
-                                <option value="none">לא כ.אשראי</option>
-                                <option value="direct">דיירקט</option>
-                                <optgroup label="חיוב">
-                                  {[...Array(31)].map((_, i) => (
-                                    <option key={i + 1} value={i + 1}>{i + 1}</option>
-                                  ))}
-                                </optgroup>
-                              </select>
-                              <button onClick={updateAccountInitialBalance} className="text-green-600 hover:text-green-800">
-                                <Check size={16} />
-                              </button>
-                              <button onClick={() => setEditingAccount(null)} className="text-red-600 hover:text-red-800">
-                                <X size={16} />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              {isChild ? (
-                                // Child account - smaller font, in parentheses
-                                <span className={`text-sm ${account.balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                  (₪{account.balance.toFixed(2)})
-                                </span>
-                              ) : (
-                                // Parent account - normal display
-                                <span className={`text-lg font-bold ${account.balance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                                  ₪{account.balance.toFixed(2)}
-                                </span>
-                              )}
-                              <button
-                                onClick={() => { 
-                                  setEditingAccount({...account}); 
-                                  setNewAccountBalance(account.balance); 
-                                }}
-                                className="text-blue-500 hover:text-blue-700"
-                              >
-                                <Edit2 size={14} />
-                              </button>
-                              <button
-                                onClick={() => deleteAccount(account.id)}
-                                className="text-red-500 hover:text-red-700"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {renderTable(sortedExpenses, 'expense')}
+        {renderTable(sortedIncomes, 'income')}
       </div>
     );
-  };
+  }
 
-  // Render Members/Users management
-  const renderMembers = () => (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-4">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold text-gray-700">חברי המשפחה / משתמשים</h3>
-          <div className="flex gap-2">
-            <button
-              onClick={() => generateInviteLink('invite')}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-            >
-              <Share2 size={18} />
-              שיתוף קישור
-            </button>
-            {!isAddingMember && (
-              <button
-                onClick={() => setIsAddingMember(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                <UserPlus size={18} />
-                הוספה ידנית
+  function renderCategories() {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {['expense', 'income'].map(type => (
+          <div key={type} className="bg-white rounded-xl shadow-md p-4">
+            <h3 className={`font-bold text-lg mb-4 ${type === 'expense' ? 'text-red-600' : 'text-green-600'}`}>
+              {type === 'expense' ? 'קטגוריות הוצאות' : 'קטגוריות הכנסות'}
+            </h3>
+            <div className="space-y-2">
+              {categories[type].map((cat, idx) => (
+                <div key={cat} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  {editingCategory?.type === type && editingCategory?.name === cat ? (
+                    <div className="flex gap-2 flex-1">
+                      <input type="text" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="flex-1 border rounded p-1" />
+                      <button onClick={saveEditCategory} className="text-green-600"><Check size={18} /></button>
+                      <button onClick={() => { setEditingCategory(null); setNewCategoryName(''); }} className="text-red-600"><X size={18} /></button>
+                    </div>
+                  ) : (
+                    <>
+                      <span>{cat}</span>
+                      <div className="flex gap-1">
+                        <button onClick={() => moveCategory(type, cat, 'up')} disabled={idx === 0} className="text-gray-400 hover:text-gray-600 disabled:opacity-30"><ArrowUp size={16} /></button>
+                        <button onClick={() => moveCategory(type, cat, 'down')} disabled={idx === categories[type].length - 1} className="text-gray-400 hover:text-gray-600 disabled:opacity-30"><ArrowDown size={16} /></button>
+                        <button onClick={() => startEditCategory(type, cat)} className="text-blue-600"><Edit2 size={16} /></button>
+                        <button onClick={() => deleteCategory(type, cat)} className="text-red-600"><Trash2 size={16} /></button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 flex gap-2">
+              <input type="text" placeholder="קטגוריה חדשה" value={newCategoryType === type ? newCategoryName : ''} onChange={(e) => { setNewCategoryName(e.target.value); setNewCategoryType(type); }} onFocus={() => setNewCategoryType(type)} className="flex-1 border rounded-lg p-2" />
+              <button onClick={() => { setNewCategoryType(type); addCategory(); }} className={`px-4 py-2 rounded-lg text-white ${type === 'expense' ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'}`}>
+                <PlusCircle size={20} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function renderSources() {
+    return (
+      <div className="space-y-6">
+        {familyMembers.map(member => (
+          <div key={member.id} className="bg-white rounded-xl shadow-md p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <span className={`w-8 h-8 rounded-full flex items-center justify-center text-white ${getUserColor(member.name)}`}>{member.name.charAt(0)}</span>
+              <h3 className="font-bold text-lg">{member.name}</h3>
+            </div>
+            <div className="space-y-2">
+              {getSortedAccountsForUser(member.name).map((acc) => (
+                <div key={acc.id} className={`flex items-center justify-between p-3 rounded-lg ${acc.parentAccount ? 'bg-gray-100 mr-4' : 'bg-gray-50'}`}>
+                  {editingAccount?.id === acc.id ? (
+                    <div className="flex-1 space-y-2">
+                      <div className="flex gap-2">
+                        <input type="text" value={editingAccount.name} onChange={(e) => setEditingAccount({...editingAccount, name: e.target.value})} className="flex-1 border rounded p-1" />
+                        <input type="number" value={newAccountBalance} onChange={(e) => setNewAccountBalance(e.target.value)} className="w-32 border rounded p-1" />
+                      </div>
+                      <div className="flex gap-2">
+                        <select value={editingAccount.parentAccount || ''} onChange={(e) => setEditingAccount({...editingAccount, parentAccount: e.target.value ? e.target.value : null})} className="flex-1 border rounded p-1">
+                          <option value="">ללא חשבון אב</option>
+                          {getParentAccounts(member.name).filter(a => a.id !== acc.id).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                        </select>
+                        <select value={editingAccount.billingDay === null ? '' : editingAccount.billingDay} onChange={(e) => setEditingAccount({...editingAccount, billingDay: e.target.value === '' ? null : e.target.value})} className="flex-1 border rounded p-1">
+                          <option value="">ללא תאריך חיוב</option>
+                          <option value="0">דיירקט</option>
+                          {[...Array(28)].map((_, i) => <option key={i+1} value={i+1}>חיוב ב-{i+1} לחודש</option>)}
+                        </select>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={updateAccountInitialBalance} className="text-green-600"><Check size={18} /></button>
+                        <button onClick={() => setEditingAccount(null)} className="text-red-600"><X size={18} /></button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <span className="font-medium">{acc.name}</span>
+                        {acc.billingDay !== null && <span className="text-xs text-gray-500 mr-2">({getBillingDayText(acc.billingDay)})</span>}
+                        <p className={`text-lg font-bold ${acc.balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>₪{acc.balance.toLocaleString()}</p>
+                      </div>
+                      <div className="flex gap-1">
+                        {!acc.parentAccount && (
+                          <>
+                            <button onClick={() => moveAccount(member.name, acc.id, 'up')} className="text-gray-400 hover:text-gray-600"><ArrowUp size={16} /></button>
+                            <button onClick={() => moveAccount(member.name, acc.id, 'down')} className="text-gray-400 hover:text-gray-600"><ArrowDown size={16} /></button>
+                          </>
+                        )}
+                        <button onClick={() => { setEditingAccount(acc); setNewAccountBalance(acc.balance); }} className="text-blue-600"><Edit2 size={16} /></button>
+                        <button onClick={() => deleteAccount(acc.id)} className="text-red-600"><Trash2 size={16} /></button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+            {isAddingAccount && newAccount.user === member.name ? (
+              <div className="mt-4 p-3 bg-yellow-50 rounded-lg space-y-2">
+                <input type="text" value={newAccount.name} onChange={(e) => setNewAccount({...newAccount, name: e.target.value})} className="w-full border rounded p-2" placeholder="שם המקור" />
+                <div className="flex gap-2">
+                  <input type="number" value={newAccount.balance} onChange={(e) => setNewAccount({...newAccount, balance: e.target.value})} className="flex-1 border rounded p-2" placeholder="יתרה" />
+                  <select value={newAccount.parentAccount || ''} onChange={(e) => setNewAccount({...newAccount, parentAccount: e.target.value ? e.target.value : null})} className="flex-1 border rounded p-2">
+                    <option value="">ללא חשבון אב</option>
+                    {getParentAccounts(member.name).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </div>
+                <select value={newAccount.billingDay === null ? '' : newAccount.billingDay} onChange={(e) => setNewAccount({...newAccount, billingDay: e.target.value === '' ? null : e.target.value})} className="w-full border rounded p-2">
+                  <option value="">ללא תאריך חיוב</option>
+                  <option value="0">דיירקט</option>
+                  {[...Array(28)].map((_, i) => <option key={i+1} value={i+1}>כרטיס אשראי - חיוב ב-{i+1}</option>)}
+                </select>
+                <div className="flex gap-2">
+                  <button onClick={addNewAccount} disabled={isSaving} className="flex-1 bg-green-500 text-white rounded p-2 hover:bg-green-600 disabled:opacity-50">{isSaving ? <Loader2 className="animate-spin mx-auto" size={20} /> : 'הוסף'}</button>
+                  <button onClick={() => setIsAddingAccount(false)} className="flex-1 bg-gray-300 rounded p-2 hover:bg-gray-400">ביטול</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => { setIsAddingAccount(true); setNewAccount({...newAccount, user: member.name}); }} className="mt-4 w-full border-2 border-dashed border-gray-300 rounded-lg p-3 text-gray-500 hover:border-purple-400 hover:text-purple-600 flex items-center justify-center gap-2">
+                <PlusCircle size={20} /> הוסף מקור כספי
               </button>
             )}
           </div>
-        </div>
-
-        {isAddingMember && (
-          <div className="bg-gray-50 rounded-lg p-4 mb-4">
-            <h4 className="font-semibold mb-3">הוספת משתמש חדש</h4>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="שם המשתמש"
-                className="border rounded p-2 flex-1"
-                value={newMemberName}
-                onChange={(e) => setNewMemberName(e.target.value)}
-              />
-              <button
-                onClick={addFamilyMember}
-                className="flex items-center gap-1 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-              >
-                <Check size={18} />
-                הוסף
-              </button>
-              <button
-                onClick={() => { setIsAddingMember(false); setNewMemberName(''); }}
-                className="flex items-center gap-1 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-              >
-                <X size={18} />
-                ביטול
-              </button>
-            </div>
-            <p className="text-sm text-gray-500 mt-2">
-              * למשתמש חדש ייווצרו אוטומטית מקורות כספיים בסיסיים (חשבון בנק, מזומן, Bit)
-            </p>
-          </div>
-        )}
-
-        <div className="space-y-3">
-          {familyMembers.map((member, index) => (
-            <div key={member.id} className="border rounded-lg p-4 flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full ${userColors[index % userColors.length]} flex items-center justify-center text-white font-bold`}>
-                  {member.name.charAt(0)}
-                </div>
-                {editingMember === member.id ? (
-                  <input
-                    type="text"
-                    className="border rounded p-2"
-                    value={editingMemberName}
-                    onChange={(e) => setEditingMemberName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        updateMemberName(member.id, editingMemberName);
-                      } else if (e.key === 'Escape') {
-                        setEditingMember(null);
-                        setEditingMemberName('');
-                      }
-                    }}
-                    autoFocus
-                  />
-                ) : (
-                  <div>
-                    <span className="font-semibold text-lg">{member.name}</span>
-                    {member.role === 'admin' && (
-                      <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded mr-2">מנהל</span>
-                    )}
-                    {member.email && (
-                      <p className="text-sm text-gray-500">{member.email}</p>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                {editingMember === member.id ? (
-                  <>
-                    <button
-                      onClick={() => updateMemberName(member.id, editingMemberName)}
-                      className="text-green-600 hover:text-green-800"
-                    >
-                      <Check size={18} />
-                    </button>
-                    <button
-                      onClick={() => { setEditingMember(null); setEditingMemberName(''); }}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      <X size={18} />
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => { setEditingMember(member.id); setEditingMemberName(member.name); }}
-                      className="text-blue-500 hover:text-blue-700"
-                    >
-                      <Edit2 size={18} />
-                    </button>
-                    <button
-                      onClick={() => deleteFamilyMember(member.id)}
-                      className="text-red-500 hover:text-red-700"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {familyMembers.length === 0 && (
-          <p className="text-center text-gray-500 py-8">אין משתמשים. הוסף משתמש חדש כדי להתחיל.</p>
-        )}
+        ))}
       </div>
-
-      <div className="bg-white rounded-lg shadow-md p-4">
-        <h3 className="text-lg font-bold text-gray-700 mb-3">פרטי החשבון</h3>
-        <div className="space-y-2">
-          <p><span className="font-semibold">שם החשבון:</span> {familyName}</p>
-          <p><span className="font-semibold">מספר משתמשים:</span> {familyMembers.length}</p>
-          <p><span className="font-semibold">סה"כ מקורות כספיים:</span> {accounts.length}</p>
-        </div>
-      </div>
-    </div>
-  );
-
-  // Auth Screen
-  const renderAuthScreen = () => (
-    <div className="min-h-screen bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center p-4" dir="rtl">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Wallet className="text-purple-600" size={32} />
-          </div>
-          <h1 className="text-2xl font-bold text-gray-800">ניהול תקציב משפחתי</h1>
-          <p className="text-gray-500 mt-1">נהלו את הכספים שלכם בקלות</p>
-        </div>
-
-        <div className="flex gap-2 mb-6">
-          <button
-            onClick={() => { setAuthMode('login'); setAuthError(''); }}
-            className={`flex-1 py-2 rounded-lg font-semibold transition-colors ${
-              authMode === 'login' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700'
-            }`}
-          >
-            התחברות
-          </button>
-          <button
-            onClick={() => { setAuthMode('register'); setAuthError(''); }}
-            className={`flex-1 py-2 rounded-lg font-semibold transition-colors ${
-              authMode === 'register' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700'
-            }`}
-          >
-            הרשמה
-          </button>
-        </div>
-
-        {authError && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
-            {authError}
-          </div>
-        )}
-
-        {authMode === 'register' && (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">שם החשבון / שם המשפחה</label>
-              <input
-                type="text"
-                placeholder="לדוגמה: משפחת כהן"
-                className="w-full border rounded-lg p-3"
-                value={authForm.familyName}
-                onChange={(e) => setAuthForm({ ...authForm, familyName: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">השם שלך</label>
-              <input
-                type="text"
-                placeholder="השם שיוצג באפליקציה"
-                className="w-full border rounded-lg p-3"
-                value={authForm.name}
-                onChange={(e) => setAuthForm({ ...authForm, name: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
-              <input
-                type="email"
-                placeholder="your@email.com"
-                className="w-full border rounded-lg p-3"
-                value={authForm.email}
-                onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">סיסמה</label>
-              <input
-                type="password"
-                placeholder="לפחות 6 תווים"
-                className="w-full border rounded-lg p-3"
-                value={authForm.password}
-                onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })}
-              />
-            </div>
-            <button
-              onClick={handleRegister}
-              className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
-            >
-              <UserPlus size={20} />
-              צור חשבון חדש
-            </button>
-          </div>
-        )}
-
-        {authMode === 'login' && (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
-              <input
-                type="email"
-                placeholder="your@email.com"
-                className="w-full border rounded-lg p-3"
-                value={authForm.email}
-                onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">סיסמה</label>
-              <input
-                type="password"
-                placeholder="הסיסמה שלך"
-                className="w-full border rounded-lg p-3"
-                value={authForm.password}
-                onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })}
-              />
-            </div>
-            <button
-              onClick={handleLogin}
-              className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
-            >
-              <LogIn size={20} />
-              התחבר
-            </button>
-          </div>
-        )}
-
-        <p className="text-center text-sm text-gray-500 mt-6">
-          {authMode === 'login' 
-            ? 'אין לך חשבון? לחץ על "הרשמה" למעלה'
-            : 'יש לך חשבון? לחץ על "התחברות" למעלה'
-          }
-        </p>
-      </div>
-    </div>
-  );
-
-  // If not logged in, show auth screen
-  if (!isLoggedIn) {
-    return renderAuthScreen();
+    );
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50 p-4" dir="rtl">
-      {/* Share Dialog - Global */}
-      {showShareDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowShareDialog(false)}>
-          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold">
-                {shareType === 'invite' ? 'הזמנת משתמש לחשבון' : 'שיתוף האפליקציה'}
-              </h3>
-              <button onClick={() => setShowShareDialog(false)} className="text-gray-500 hover:text-gray-700">
-                <X size={20} />
-              </button>
-            </div>
-            <p className="text-gray-600 mb-4">
-              {shareType === 'invite' 
-                ? `שלח את הקישור הזה למי שתרצה להזמין לחשבון "${familyName}":`
-                : 'שלח את הקישור הזה למי שרוצה ליצור חשבון משלו:'
-              }
-            </p>
-            <div className="flex gap-2 mb-4">
-              <input
-                type="text"
-                readOnly
-                value={inviteLink}
-                className="border rounded p-2 flex-1 text-sm bg-gray-50 text-left"
-                dir="ltr"
-              />
-              <button
-                onClick={copyInviteLink}
-                className={`px-4 py-2 rounded flex items-center gap-2 ${linkCopied ? 'bg-green-600' : 'bg-blue-600'} text-white hover:opacity-90`}
-              >
-                <Copy size={16} />
-                {linkCopied ? 'הועתק!' : 'העתק'}
-              </button>
-            </div>
-            <p className="text-sm text-gray-500">
-              {shareType === 'invite'
-                ? '* כשהמוזמן יפתח את הקישור, הוא יוכל להצטרף לחשבון ולהזין את שמו.'
-                : '* כשהנמען יפתח את הקישור, הוא יוכל ליצור חשבון חדש משלו.'
-              }
-            </p>
-          </div>
-        </div>
-      )}
-
-      <div className="max-w-7xl mx-auto">
-        <div className="bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg shadow-lg p-6 mb-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-3xl font-bold">ניהול תקציב משפחתי</h1>
-              <p className="text-purple-100 mt-1">{familyName}</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-purple-100">שלום, {currentUser?.name}</span>
-              <div className="relative">
-                <button
-                  onClick={() => setShowShareMenu(!showShareMenu)}
-                  className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg text-sm transition-colors flex items-center gap-2"
-                >
-                  <Share2 size={16} />
-                  שיתוף
-                </button>
-                {showShareMenu && (
-                  <div className="absolute left-0 top-full mt-2 bg-white rounded-lg shadow-lg py-2 min-w-48 z-50">
-                    <button
-                      onClick={() => generateInviteLink('invite')}
-                      className="w-full text-right px-4 py-2 text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                    >
-                      <UserPlus size={16} />
-                      הזמנה לחשבון שלי
-                    </button>
-                    <button
-                      onClick={() => generateInviteLink('app')}
-                      className="w-full text-right px-4 py-2 text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                    >
-                      <Link size={16} />
-                      שיתוף האפליקציה
-                    </button>
+  function renderMembers() {
+    return (
+      <div className="bg-white rounded-xl shadow-md p-4">
+        <h3 className="font-bold text-lg mb-4">משתמשים</h3>
+        <div className="space-y-3">
+          {familyMembers.map(member => (
+            <div key={member.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              {editingMember === member.id ? (
+                <div className="flex gap-2 flex-1">
+                  <input type="text" value={editingMemberName} onChange={(e) => setEditingMemberName(e.target.value)} className="flex-1 border rounded p-2" />
+                  <button onClick={() => updateMemberName(member.id, editingMemberName)} className="text-green-600"><Check size={20} /></button>
+                  <button onClick={() => { setEditingMember(null); setEditingMemberName(''); }} className="text-red-600"><X size={20} /></button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3">
+                    <span className={`w-10 h-10 rounded-full flex items-center justify-center text-white ${getUserColor(member.name)}`}>{member.name.charAt(0)}</span>
+                    <div>
+                      <p className="font-medium">{member.name}</p>
+                      <p className="text-sm text-gray-500">{member.role === 'admin' ? 'מנהל' : 'חבר'}</p>
+                    </div>
                   </div>
-                )}
-              </div>
-              <button
-                onClick={handleLogout}
-                className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg text-sm transition-colors"
-              >
-                התנתק
-              </button>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setEditingMember(member.id); setEditingMemberName(member.name); }} className="text-blue-600"><Edit2 size={18} /></button>
+                    <button onClick={() => deleteFamilyMember(member.id)} className="text-red-600"><Trash2 size={18} /></button>
+                  </div>
+                </>
+              )}
             </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-md mb-6 p-2 flex gap-2 overflow-x-auto">
-          {[
-            { id: 'dashboard', label: 'דשבורד', icon: TrendingUp },
-            { id: 'transactions', label: 'הוצאות והכנסות', icon: List },
-            { id: 'categories', label: 'קטגוריות', icon: Tag },
-            { id: 'sources', label: 'מקורות כספיים', icon: Wallet },
-            { id: 'members', label: 'משתמשים', icon: Users }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-colors ${
-                activeTab === tab.id
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              <tab.icon size={18} />
-              {tab.label}
-            </button>
           ))}
         </div>
-
-        {activeTab === 'dashboard' && renderDashboard()}
-        {activeTab === 'categories' && renderCategories()}
-        {activeTab === 'transactions' && renderTransactions()}
-        {activeTab === 'sources' && renderSources()}
-        {activeTab === 'members' && renderMembers()}
+        {isAddingMember ? (
+          <div className="mt-4 flex gap-2">
+            <input type="text" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} className="flex-1 border rounded-lg p-2" placeholder="שם המשתמש החדש" />
+            <button onClick={addFamilyMember} disabled={isSaving} className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 disabled:opacity-50">{isSaving ? <Loader2 className="animate-spin" size={20} /> : <Check size={20} />}</button>
+            <button onClick={() => { setIsAddingMember(false); setNewMemberName(''); }} className="bg-gray-300 px-4 py-2 rounded-lg hover:bg-gray-400"><X size={20} /></button>
+          </div>
+        ) : (
+          <button onClick={() => setIsAddingMember(true)} className="mt-4 w-full border-2 border-dashed border-gray-300 rounded-lg p-3 text-gray-500 hover:border-purple-400 hover:text-purple-600 flex items-center justify-center gap-2">
+            <UserPlus size={20} /> הוסף משתמש
+          </button>
+        )}
       </div>
-    </div>
-  );
+    );
+  }
 };
 
 export default BudgetApp;
