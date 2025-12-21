@@ -89,6 +89,8 @@ const BudgetApp = () => {
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [shareType, setShareType] = useState('invite');
   const [inviteLink, setInviteLink] = useState('');
+  const [inviteFamilyId, setInviteFamilyId] = useState(null);
+  const [inviteFamilyName, setInviteFamilyName] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
 
   // ========================================
@@ -100,6 +102,17 @@ const BudgetApp = () => {
 
   const checkSession = async () => {
     try {
+      // Check for invite link in URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const inviteId = urlParams.get('invite');
+      const inviteName = urlParams.get('familyName');
+      
+      if (inviteId && inviteName) {
+        setInviteFamilyId(inviteId);
+        setInviteFamilyName(decodeURIComponent(inviteName));
+        setAuthMode('register');
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         await loadUserData(session.user.id);
@@ -244,8 +257,13 @@ const BudgetApp = () => {
   // SUPABASE: Authentication
   // ========================================
   const handleRegister = async () => {
-    if (!authForm.name.trim() || !authForm.familyName.trim()) {
-      setAuthError('נא למלא שם ושם משפחה/חשבון');
+    if (!authForm.name.trim()) {
+      setAuthError('נא למלא שם');
+      return;
+    }
+    // Only require family name if NOT joining via invite
+    if (!inviteFamilyId && !authForm.familyName.trim()) {
+      setAuthError('נא למלא שם משפחה/חשבון');
       return;
     }
     if (!authForm.email.trim() || !authForm.password.trim()) {
@@ -278,47 +296,80 @@ const BudgetApp = () => {
         return;
       }
 
-      const { data: familyData, error: familyError } = await supabase
-        .from('families')
-        .insert({ name: authForm.familyName.trim() })
-        .select()
-        .single();
+      let targetFamilyId;
 
-      if (familyError) {
-        setAuthError('שגיאה ביצירת החשבון המשפחתי');
-        setIsSaving(false);
-        return;
+      // If joining via invite link
+      if (inviteFamilyId) {
+        targetFamilyId = inviteFamilyId;
+        
+        // Add user to existing family
+        await supabase.from('users').insert({
+          id: authData.user.id,
+          email: authForm.email.trim(),
+          name: authForm.name.trim(),
+          family_id: targetFamilyId,
+          role: 'member'
+        });
+
+        // Create default accounts for new member
+        const defaultAccounts = [
+          { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'חשבון בנק', balance: 0, sort_order: 0 },
+          { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'מזומן', balance: 0, sort_order: 1 },
+          { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'Bit', balance: 0, sort_order: 2 },
+        ];
+        await supabase.from('accounts').insert(defaultAccounts);
+
+        // Clear URL params
+        window.history.replaceState({}, document.title, window.location.pathname);
+
+      } else {
+        // Creating new family
+        const { data: familyData, error: familyError } = await supabase
+          .from('families')
+          .insert({ name: authForm.familyName.trim() })
+          .select()
+          .single();
+
+        if (familyError) {
+          setAuthError('שגיאה ביצירת החשבון המשפחתי');
+          setIsSaving(false);
+          return;
+        }
+
+        targetFamilyId = familyData.id;
+
+        await supabase.from('users').insert({
+          id: authData.user.id,
+          email: authForm.email.trim(),
+          name: authForm.name.trim(),
+          family_id: targetFamilyId,
+          role: 'admin'
+        });
+
+        const defaultCategories = [
+          { family_id: targetFamilyId, name: 'סופר', type: 'expense', sort_order: 0 },
+          { family_id: targetFamilyId, name: 'אוכל בחוץ והזמנות', type: 'expense', sort_order: 1 },
+          { family_id: targetFamilyId, name: 'לימודים', type: 'expense', sort_order: 2 },
+          { family_id: targetFamilyId, name: 'רכב', type: 'expense', sort_order: 3 },
+          { family_id: targetFamilyId, name: 'חיסכון', type: 'expense', sort_order: 4 },
+          { family_id: targetFamilyId, name: 'שונות', type: 'expense', sort_order: 5 },
+          { family_id: targetFamilyId, name: 'הכנסה קבועה', type: 'income', sort_order: 0 },
+          { family_id: targetFamilyId, name: 'הכנסה משתנה', type: 'income', sort_order: 1 },
+        ];
+        await supabase.from('categories').insert(defaultCategories);
+
+        const defaultAccounts = [
+          { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'חשבון בנק', balance: 0, sort_order: 0 },
+          { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'מזומן', balance: 0, sort_order: 1 },
+          { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'Bit', balance: 0, sort_order: 2 },
+        ];
+        await supabase.from('accounts').insert(defaultAccounts);
       }
-
-      await supabase.from('users').insert({
-        id: authData.user.id,
-        email: authForm.email.trim(),
-        name: authForm.name.trim(),
-        family_id: familyData.id,
-        role: 'admin'
-      });
-
-      const defaultCategories = [
-        { family_id: familyData.id, name: 'סופר', type: 'expense', sort_order: 0 },
-        { family_id: familyData.id, name: 'אוכל בחוץ והזמנות', type: 'expense', sort_order: 1 },
-        { family_id: familyData.id, name: 'לימודים', type: 'expense', sort_order: 2 },
-        { family_id: familyData.id, name: 'רכב', type: 'expense', sort_order: 3 },
-        { family_id: familyData.id, name: 'חיסכון', type: 'expense', sort_order: 4 },
-        { family_id: familyData.id, name: 'שונות', type: 'expense', sort_order: 5 },
-        { family_id: familyData.id, name: 'הכנסה קבועה', type: 'income', sort_order: 0 },
-        { family_id: familyData.id, name: 'הכנסה משתנה', type: 'income', sort_order: 1 },
-      ];
-      await supabase.from('categories').insert(defaultCategories);
-
-      const defaultAccounts = [
-        { family_id: familyData.id, user_name: authForm.name.trim(), name: 'חשבון בנק', balance: 0, sort_order: 0 },
-        { family_id: familyData.id, user_name: authForm.name.trim(), name: 'מזומן', balance: 0, sort_order: 1 },
-        { family_id: familyData.id, user_name: authForm.name.trim(), name: 'Bit', balance: 0, sort_order: 2 },
-      ];
-      await supabase.from('accounts').insert(defaultAccounts);
 
       await loadUserData(authData.user.id);
       setAuthForm({ email: '', password: '', name: '', familyName: '' });
+      setInviteFamilyId(null);
+      setInviteFamilyName('');
     } catch (error) {
       console.error('Registration error:', error);
       setAuthError('שגיאה בהרשמה');
@@ -382,8 +433,7 @@ const BudgetApp = () => {
   const generateInviteLink = (type = 'invite') => {
     setShareType(type);
     if (type === 'invite') {
-      const inviteCode = Math.random().toString(36).substring(2, 10).toUpperCase();
-      const link = `${window.location.origin}?invite=${inviteCode}&family=${encodeURIComponent(familyName)}`;
+      const link = `${window.location.origin}?invite=${familyId}&familyName=${encodeURIComponent(familyName)}`;
       setInviteLink(link);
     } else {
       setInviteLink(window.location.origin);
@@ -1228,8 +1278,13 @@ const BudgetApp = () => {
           )}
 
           <div className="space-y-4">
-            {authMode === 'register' && (
+          {authMode === 'register' && (
               <>
+                {inviteFamilyId && (
+                  <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-2">
+                    מצטרף/ת לחשבון: <strong>{inviteFamilyName}</strong>
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">שם</label>
                   <input
@@ -1240,16 +1295,18 @@ const BudgetApp = () => {
                     placeholder="השם שלך"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">שם החשבון המשפחתי</label>
-                  <input
-                    type="text"
-                    value={authForm.familyName}
-                    onChange={(e) => setAuthForm({ ...authForm, familyName: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="לדוגמה: משפחת כהן"
-                  />
-                </div>
+                {!inviteFamilyId && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">שם החשבון המשפחתי</label>
+                    <input
+                      type="text"
+                      value={authForm.familyName}
+                      onChange={(e) => setAuthForm({ ...authForm, familyName: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      placeholder="לדוגמה: משפחת כהן"
+                    />
+                  </div>
+                )}
               </>
             )}
             <div>
