@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { PlusCircle, TrendingUp, TrendingDown, Wallet, Tag, List, Trash2, Edit2, X, Check, ArrowUp, ArrowDown, Users, LogIn, UserPlus, Share2, Link, Copy, Loader2 } from 'lucide-react';
+import { PlusCircle, TrendingUp, TrendingDown, Zap, Wallet, Tag, List, Trash2, Edit2, X, Check, ArrowUp, ArrowDown, Users, LogIn, UserPlus, Share2, Link, Copy, Loader2 } from 'lucide-react';
 
 const BudgetApp = () => {
   // Loading states
@@ -91,6 +91,13 @@ const BudgetApp = () => {
   const [inviteLink, setInviteLink] = useState('');
   const [inviteFamilyId, setInviteFamilyId] = useState(null);
   const [inviteFamilyName, setInviteFamilyName] = useState('');
+  const [isQuickMode, setIsQuickMode] = useState(false);
+  const [quickExpense, setQuickExpense] = useState({
+    amount: '',
+    category: '',
+    account: '',
+    note: ''
+  });
   const [linkCopied, setLinkCopied] = useState(false);
 
   // ========================================
@@ -102,8 +109,20 @@ const BudgetApp = () => {
 
   const checkSession = async () => {
     try {
-      // Check for invite link in URL
+      // Check for URL parameters
       const urlParams = new URLSearchParams(window.location.search);
+      
+      // Check for quick mode
+      const quickMode = urlParams.get('quick');
+      if (quickMode === 'true') {
+        setIsQuickMode(true);
+        // Save to sessionStorage so it persists after login
+        sessionStorage.setItem('quickMode', 'true');
+      } else if (sessionStorage.getItem('quickMode') === 'true') {
+        setIsQuickMode(true);
+      }
+      
+      // Check for invite link
       const inviteId = urlParams.get('invite');
       const inviteName = urlParams.get('familyName');
       
@@ -123,7 +142,6 @@ const BudgetApp = () => {
       setIsLoading(false);
     }
   };
-
   const loadUserData = async (userId) => {
     try {
       const { data: userData, error: userError } = await supabase
@@ -713,6 +731,54 @@ const BudgetApp = () => {
       return acc;
     }));
   }, [accounts]);
+
+  // ========================================
+  // Quick Expense
+  // ========================================
+  const saveQuickExpense = async () => {
+    if (!quickExpense.amount || !quickExpense.category || !quickExpense.account) {
+      alert('נא למלא סכום, קטגוריה ומקור תשלום');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const { error } = await supabase.from('transactions').insert({
+        family_id: familyId,
+        user_name: currentUser,
+        type: 'expense',
+        amount: parseFloat(quickExpense.amount),
+        category: quickExpense.category,
+        account_id: quickExpense.account,
+        note: quickExpense.note || '',
+        date: new Date().toISOString().split('T')[0]
+      });
+
+      if (error) throw error;
+
+      // Update account balance
+      const account = accounts.find(a => a.id === quickExpense.account);
+      if (account) {
+        await supabase
+          .from('accounts')
+          .update({ balance: account.balance - parseFloat(quickExpense.amount) })
+          .eq('id', quickExpense.account);
+      }
+
+      // Reset form
+      setQuickExpense({ amount: '', category: '', account: '', note: '' });
+      
+      // Reload data
+      await loadFamilyData(familyId);
+      
+      alert('✅ ההוצאה נשמרה!');
+    } catch (error) {
+      console.error('Error saving quick expense:', error);
+      alert('שגיאה בשמירת ההוצאה');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // ========================================
   // SUPABASE: Transaction Management
@@ -1348,6 +1414,264 @@ const BudgetApp = () => {
     );
   }
 
+  // ========================================
+  // Quick Expense Screen Render
+  // ========================================
+  const renderQuickExpense = () => {
+    // Handle both array and object formats for categories
+    let expenseCategories = [];
+    if (Array.isArray(categories)) {
+      expenseCategories = categories.filter(c => c.type === 'expense');
+    } else if (categories && categories.expense) {
+      // Convert string array to objects with id and name
+      expenseCategories = categories.expense.map((name, index) => ({ id: index, name }));
+    }
+    
+   const currentUserName = typeof currentUser === 'object' ? currentUser.name : currentUser;
+    console.log('currentUserName:', currentUserName);
+    console.log('accounts user_names:', accounts?.map(a => a.user_name));
+    // Show all accounts for now (not filtered by user)
+    const userAccounts = accounts || [];
+    
+    const categoryEmojis = {
+      'סופר': '🛒',
+      'אוכל בחוץ והזמנות': '🍕',
+      'רכב': '🚗',
+      'לימודים': '📚',
+      'חיסכון': '💰',
+      'שונות': '📦',
+      'קפה': '☕',
+      'מאפה': '☕',
+      'שתייה חמה': '☕',
+      'בילוי': '🍻',
+      'יציאה': '🍻',
+      'יציאות': '🍻',
+      'בירה': '🍻',
+      'בירות': '🍻',
+      'פאב': '🍻',
+      'פאבים': '🍻',
+      'פנאי': '🎨',
+      'תחביב': '🎨',
+      'תחביבים': '🎨',
+      'חופשה': '⛷️',
+      'חופשות': '⛷️',
+      'סקי': '⛷️',
+      'הופעה': '🎭',
+      'הופעות': '🎭',
+      'הצגה': '🎭',
+      'הצגות': '🎭',
+      'פסטיבל': '🎭',
+      'פסטיגל': '🎭',
+      'קונצרט': '🎭',
+      'קונצרטים': '🎭',
+      'הימורים': '🎰',
+      'אפליקציות': '🎰',
+      'תשלום על אפליקציות': '🎰',
+      'בית': '🏠',
+      'בתים': '🏠',
+      'שכ"ד': '🏠',
+      'שכר דירה': '🏠',
+      'דיור': '🏠',
+      'מגורים': '🏠',
+      'חשבונות': '🏠',
+      'בנק': '🏦',
+      'בנקים': '🏦',
+      'עמלה': '🏦',
+      'עמלות': '🏦',
+      'הלוואה': '🏦',
+      'הלוואות': '🏦',
+      'מחשב': '💻',
+      'מחשבים': '💻',
+      'נייד': '💻',
+      'טלפון': '💻',
+      'טלפונים': '💻',
+      'סלולרי': '💻',
+      'סלולריים': '💻',
+      'ייעוץ': '⚖️',
+      'סיוע משפטי': '⚖️',
+      'מתנה': '🎁',
+      'מתנות': '🎁',
+      'כלב': '🐶',
+      'כלבים': '🐶',
+      'חיות': '🐶',
+      'חתול': '🐶',
+      'חתולים': '🐶',
+      'חיית מחמד': '🐶',
+      'מחמד': '🐶',
+      'חיות מחמד': '🐶',
+      'דג': '🐶',
+      'דגים': '🐶',
+      'תוכי': '🐶',
+      'תוכיים': '🐶',
+      'דו"ח': '👮',
+      'דו"חות': '👮',
+      'דוח': '👮',
+      'דוחות': '👮',
+      'משטרה': '👮',
+      'קנס': '👮',
+      'קנסות': '👮',
+      'בדיקה רפואית': '👩‍⚕️',
+      'בדיקות רפואיות': '👩‍⚕️',
+      'רופא': '👩‍⚕️',
+      'רופאה': '👩‍⚕️',
+      'דייט': '💕',
+      'דייטים': '💕',
+      'זוגי': '💕'
+    };
+    
+   const accountEmojis = {
+      'כרטיס אשראי': '💳',
+      'אשראי': '💳',
+      'חשבון בנק': '🏦',
+      'מזומן': '💵',
+      'ארנק': '💵',
+      'Bit': '📱',
+      'PayBox': '📱',
+      'צ׳ק': '📝',
+      'צ׳קים': '📝',
+    };
+    
+    const getEmoji = (name, emojiMap) => {
+      if (!name) return '📌';
+      for (const [key, emoji] of Object.entries(emojiMap)) {
+        if (name.includes(key)) return emoji;
+      }
+      return '📌';
+    };
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-500 to-blue-600 flex flex-col" dir="rtl">
+        {/* Header */}
+        <div className="px-6 py-4 text-white">
+          <div className="flex items-center justify-between">
+            <button 
+              onClick={() => {
+                setIsQuickMode(false);
+                sessionStorage.removeItem('quickMode');
+              }}
+              className="text-white/80 hover:text-white"
+            >
+              <X className="h-6 w-6" />
+            </button>
+            <h1 className="text-xl font-bold">⚡ הוצאה מהירה</h1>
+            <div className="w-6"></div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 bg-white rounded-t-3xl p-6 space-y-6 overflow-y-auto">
+          
+          {/* Amount Input */}
+          <div className="text-center">
+            <label className="block text-gray-500 text-sm mb-2">סכום</label>
+            <div className="relative">
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-4xl text-gray-400">₪</span>
+              <input
+                type="number"
+                placeholder="0"
+                value={quickExpense.amount}
+                onChange={(e) => setQuickExpense({ ...quickExpense, amount: e.target.value })}
+                className="w-full text-center text-5xl font-bold text-gray-800 border-b-4 border-purple-500 pb-2 focus:outline-none focus:border-purple-600 bg-transparent"
+              />
+            </div>
+          </div>
+
+          {/* Categories */}
+          <div>
+            <label className="block text-gray-500 text-sm mb-3 text-center">קטגוריה</label>
+            <div className="grid grid-cols-3 gap-2">
+              {expenseCategories.map((cat) => (
+                <button
+                  key={cat.id || cat.name}
+                  onClick={() => setQuickExpense({ ...quickExpense, category: cat.name })}
+                  className={`rounded-xl py-3 px-2 text-sm font-medium transition-all border-2 ${
+                    quickExpense.category === cat.name
+                      ? 'bg-purple-500 text-white border-purple-600 shadow-md scale-105'
+                      : 'bg-purple-100 text-purple-700 border-transparent hover:bg-purple-200'
+                  }`}
+                >
+                  {getEmoji(cat.name, categoryEmojis)} {cat.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Accounts */}
+          <div>
+            <label className="block text-gray-500 text-sm mb-3 text-center">מקור תשלום</label>
+            <div className="grid grid-cols-2 gap-2">
+              {userAccounts.map((acc) => (
+                <button
+                  key={acc.id}
+                  onClick={() => setQuickExpense({ ...quickExpense, account: acc.id })}
+                  className={`rounded-xl py-3 px-4 text-sm font-medium transition-all border-2 flex items-center justify-center gap-2 ${
+                    quickExpense.account === acc.id
+                      ? 'bg-blue-500 text-white border-blue-600 shadow-md scale-105'
+                      : 'bg-gray-100 text-gray-700 border-transparent hover:bg-gray-200'
+                  }`}
+                >
+                  {getEmoji(acc.name, accountEmojis)} {acc.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Note */}
+          <div>
+            <label className="block text-gray-500 text-sm mb-2 text-center">הערה (אופציונלי)</label>
+            <input
+              type="text"
+              placeholder="למשל: ארוחת צהריים, קניות לשבת..."
+              value={quickExpense.note}
+              onChange={(e) => setQuickExpense({ ...quickExpense, note: e.target.value })}
+              className="w-full border border-gray-200 rounded-xl p-3 text-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-center"
+            />
+          </div>
+
+        </div>
+
+        {/* Bottom Buttons */}
+        <div className="p-6 bg-white border-t border-gray-100">
+          <button
+            onClick={saveQuickExpense}
+            disabled={isSaving}
+            className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-2xl py-4 text-lg font-bold shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {isSaving ? (
+              <Loader2 className="w-6 h-6 animate-spin" />
+            ) : (
+              <>
+                <Check className="h-6 w-6" />
+                שמור הוצאה
+              </>
+            )}
+          </button>
+          
+          <button
+            onClick={() => {
+              setIsQuickMode(false);
+              sessionStorage.removeItem('quickMode');
+              window.location.href = window.location.origin;
+            }}
+            className="w-full mt-3 text-purple-600 font-medium py-2"
+          >
+            לאפליקציה המלאה →
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+ // Quick Expense Screen
+  const urlParams = new URLSearchParams(window.location.search);
+  const isQuickFromUrl = urlParams.get('quick') === 'true' || sessionStorage.getItem('quickMode') === 'true';
+  
+  const hasCategories = categories && (Array.isArray(categories) ? categories.length > 0 : (categories.expense?.length > 0 || categories.income?.length > 0));
+  
+  if ((isQuickMode || isQuickFromUrl) && isLoggedIn && hasCategories) {
+    return renderQuickExpense();
+  }
+
   // Main App
   return (
     <div className="min-h-screen bg-gray-100" dir="rtl">
@@ -1361,6 +1685,7 @@ const BudgetApp = () => {
           <div className="flex items-center gap-4">
             <span className="text-purple-200">שלום, {currentUser?.name}</span>
             <div className="relative">
+             
               <button
                 onClick={() => setShowShareMenu(!showShareMenu)}
                 className="bg-purple-500 hover:bg-purple-400 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
@@ -1385,6 +1710,16 @@ const BudgetApp = () => {
                 </div>
               )}
             </div>
+            <button
+              onClick={() => {
+                setIsQuickMode(true);
+                sessionStorage.setItem('quickMode', 'true');
+              }}
+              className="bg-yellow-400 text-yellow-900 px-3 py-2 rounded-lg font-medium hover:bg-yellow-300 transition-colors flex items-center gap-1"
+            >
+              <Zap className="w-4 h-4" />
+              לאפליקציה המהירה
+            </button>
             <button
               onClick={handleLogout}
               className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded-lg transition-colors"
