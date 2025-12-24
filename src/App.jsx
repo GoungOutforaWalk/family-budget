@@ -18,7 +18,7 @@ const BudgetApp = () => {
   const [familyId, setFamilyId] = useState(null);
   const [familyMembers, setFamilyMembers] = useState([]);
   const [familyName, setFamilyName] = useState('');
-  
+
   // State management
   const [activeTab, setActiveTab] = useState('dashboard');
   const [transactions, setTransactions] = useState([]);
@@ -111,7 +111,7 @@ const BudgetApp = () => {
     try {
       // Check for URL parameters
       const urlParams = new URLSearchParams(window.location.search);
-      
+
       // Check for quick mode
       const quickMode = urlParams.get('quick');
       if (quickMode === 'true') {
@@ -121,11 +121,11 @@ const BudgetApp = () => {
       } else if (sessionStorage.getItem('quickMode') === 'true') {
         setIsQuickMode(true);
       }
-      
+
       // Check for invite link
       const inviteId = urlParams.get('invite');
       const inviteName = urlParams.get('familyName');
-      
+
       if (inviteId && inviteName) {
         setInviteFamilyId(inviteId);
         setInviteFamilyName(decodeURIComponent(inviteName));
@@ -181,7 +181,7 @@ const BudgetApp = () => {
         .select('*')
         .eq('family_id', famId)
         .order('created_at');
-      
+
       if (members) {
         setFamilyMembers(members.map(m => ({
           id: m.id,
@@ -197,7 +197,7 @@ const BudgetApp = () => {
         .select('*')
         .eq('family_id', famId)
         .order('sort_order');
-      
+
       if (accountsData) {
         setAccounts(accountsData.map(a => ({
           id: a.id,
@@ -216,7 +216,7 @@ const BudgetApp = () => {
         .select('*')
         .eq('family_id', famId)
         .order('sort_order');
-      
+
       if (categoriesData && categoriesData.length > 0) {
         const expenseCats = categoriesData.filter(c => c.type === 'expense').map(c => c.name);
         const incomeCats = categoriesData.filter(c => c.type === 'income').map(c => c.name);
@@ -233,7 +233,7 @@ const BudgetApp = () => {
         .select('*')
         .eq('family_id', famId)
         .order('date', { ascending: false });
-      
+
       if (transactionsData) {
         setTransactions(transactionsData.map(t => ({
           id: t.id,
@@ -256,15 +256,15 @@ const BudgetApp = () => {
   const checkAndResetCreditCards = async (accountsList) => {
     const today = new Date();
     const currentDay = today.getDate();
-    
+
     for (const account of accountsList) {
       if (account.billing_day && account.billing_day > 0 && currentDay === account.billing_day) {
         await supabase
           .from('accounts')
           .update({ balance: 0 })
           .eq('id', account.id);
-        
-        setAccounts(prev => prev.map(a => 
+
+        setAccounts(prev => prev.map(a =>
           a.id === account.id ? { ...a, balance: 0 } : a
         ));
       }
@@ -319,7 +319,7 @@ const BudgetApp = () => {
       // If joining via invite link
       if (inviteFamilyId) {
         targetFamilyId = inviteFamilyId;
-        
+
         // Add user to existing family
         await supabase.from('users').insert({
           id: authData.user.id,
@@ -481,7 +481,7 @@ const BudgetApp = () => {
       alert('נא להזין שם');
       return;
     }
-    
+
     if (familyMembers.some(m => m.name === newMemberName.trim())) {
       alert('כבר קיים משתמש בשם זה');
       return;
@@ -512,7 +512,7 @@ const BudgetApp = () => {
       if (error) throw error;
 
       setFamilyMembers([...familyMembers, newMember]);
-      
+
       if (newAccounts) {
         const mappedAccounts = newAccounts.map(a => ({
           id: a.id,
@@ -525,7 +525,7 @@ const BudgetApp = () => {
         }));
         setAccounts([...accounts, ...mappedAccounts]);
       }
-      
+
       setNewMemberName('');
       setIsAddingMember(false);
     } catch (error) {
@@ -538,10 +538,10 @@ const BudgetApp = () => {
 
   const updateMemberName = async (memberId, newName) => {
     if (!newName.trim()) return;
-    
+
     const oldMember = familyMembers.find(m => m.id === memberId);
     if (!oldMember) return;
-    
+
     const oldName = oldMember.name;
 
     try {
@@ -557,18 +557,18 @@ const BudgetApp = () => {
         .eq('family_id', familyId)
         .eq('user_name', oldName);
 
-      setFamilyMembers(familyMembers.map(m => 
+      setFamilyMembers(familyMembers.map(m =>
         m.id === memberId ? { ...m, name: newName.trim() } : m
       ));
-      
-      setAccounts(accounts.map(a => 
+
+      setAccounts(accounts.map(a =>
         a.user === oldName ? { ...a, user: newName.trim() } : a
       ));
-      
-      setTransactions(transactions.map(t => 
+
+      setTransactions(transactions.map(t =>
         t.user === oldName ? { ...t, user: newName.trim() } : t
       ));
-      
+
       setEditingMember(null);
       setEditingMemberName('');
     } catch (error) {
@@ -580,18 +580,18 @@ const BudgetApp = () => {
   const deleteFamilyMember = async (memberId) => {
     const member = familyMembers.find(m => m.id === memberId);
     if (!member) return;
-    
+
     if (familyMembers.length <= 1) {
       alert('לא ניתן למחוק את המשתמש האחרון');
       return;
     }
-    
+
     const hasTransactions = transactions.some(t => t.user === member.name);
     if (hasTransactions) {
       alert('לא ניתן למחוק משתמש שיש לו תנועות. יש למחוק קודם את התנועות.');
       return;
     }
-    
+
     if (confirm(`האם אתה בטוח שברצונך למחוק את "${member.name}"?`)) {
       try {
         await supabase
@@ -614,7 +614,7 @@ const BudgetApp = () => {
   // ========================================
   const sortTransactions = useCallback((items, config) => {
     if (!config.key) return items;
-    
+
     const sortedItems = [...items].sort((a, b) => {
       let aValue = a[config.key];
       let bValue = b[config.key];
@@ -625,7 +625,7 @@ const BudgetApp = () => {
       } else if (config.key === 'account') {
         const aName = accounts.find(acc => acc.id === aValue)?.name || '';
         const bName = accounts.find(acc => acc.id === bValue)?.name || '';
-        return config.direction === 'ascending' 
+        return config.direction === 'ascending'
           ? aName.localeCompare(bName)
           : bName.localeCompare(aName);
       } else if (config.key === 'user' || config.key === 'category') {
@@ -697,11 +697,11 @@ const BudgetApp = () => {
   const updateAccountBalance = useCallback(async (accountId, amount, type, isRevert = false) => {
     const account = accounts.find(a => a.id === accountId);
     if (!account) return;
-    
+
     let change = amount;
     if (type === 'expense') change = -change;
     if (isRevert) change = -change;
-    
+
     const isDirectDebit = account.billingDay === 0;
     let newBalance = isDirectDebit && !isRevert ? 0 : account.balance + change;
 
@@ -767,10 +767,10 @@ const BudgetApp = () => {
 
       // Reset form
       setQuickExpense({ amount: '', category: '', account: '', note: '' });
-      
+
       // Reload data
       await loadFamilyData(familyId);
-      
+
       alert('✅ ההוצאה נשמרה!');
     } catch (error) {
       console.error('Error saving quick expense:', error);
@@ -853,12 +853,12 @@ const BudgetApp = () => {
 
     try {
       await updateAccountBalance(transaction.account, transaction.amount, transaction.type, true);
-      
+
       await supabase
         .from('transactions')
         .delete()
         .eq('id', id);
-      
+
       setTransactions(transactions.filter(t => t.id !== id));
     } catch (error) {
       console.error('Error deleting transaction:', error);
@@ -902,7 +902,7 @@ const BudgetApp = () => {
         })
         .eq('id', editingTransaction.id);
 
-      setTransactions(transactions.map(t => 
+      setTransactions(transactions.map(t =>
         t.id === editingTransaction.id ? { ...editingTransaction, amount: newAmount } : t
       ));
 
@@ -978,7 +978,7 @@ const BudgetApp = () => {
 
       setTransactions([transaction, ...transactions]);
       await updateAccountBalance(transaction.account, transaction.amount, transaction.type);
-      
+
       setIsAddingInline(null);
     } catch (error) {
       console.error('Error adding transaction:', error);
@@ -997,7 +997,7 @@ const BudgetApp = () => {
   // ========================================
   const addCategory = async () => {
     if (!newCategoryName.trim()) return;
-    
+
     const type = newCategoryType;
     if (categories[type].includes(newCategoryName.trim())) {
       alert('קטגוריה זו כבר קיימת');
@@ -1030,7 +1030,7 @@ const BudgetApp = () => {
       alert('לא ניתן למחוק קטגוריה שיש בה תנועות');
       return;
     }
-    
+
     try {
       await supabase
         .from('categories')
@@ -1057,10 +1057,10 @@ const BudgetApp = () => {
 
   const saveEditCategory = async () => {
     if (!editingCategory || !newCategoryName.trim()) return;
-    
+
     const { type, name: oldName } = editingCategory;
     const newName = newCategoryName.trim();
-    
+
     if (oldName === newName) {
       setEditingCategory(null);
       setNewCategoryName('');
@@ -1087,7 +1087,7 @@ const BudgetApp = () => {
         [type]: categories[type].map(c => c === oldName ? newName : c)
       });
 
-      setTransactions(transactions.map(t => 
+      setTransactions(transactions.map(t =>
         t.category === oldName && t.type === type ? { ...t, category: newName } : t
       ));
 
@@ -1118,7 +1118,7 @@ const BudgetApp = () => {
   const updateAccountInitialBalance = async () => {
     if (!editingAccount) return;
     const newBalance = parseFloat(newAccountBalance);
-    
+
     try {
       await supabase
         .from('accounts')
@@ -1130,15 +1130,15 @@ const BudgetApp = () => {
         })
         .eq('id', editingAccount.id);
 
-      setAccounts(accounts.map(a => 
-        a.id === editingAccount.id 
-          ? { 
-              ...a, 
-              name: editingAccount.name,
-              balance: newBalance, 
-              parentAccount: editingAccount.parentAccount,
-              billingDay: editingAccount.billingDay
-            } 
+      setAccounts(accounts.map(a =>
+        a.id === editingAccount.id
+          ? {
+            ...a,
+            name: editingAccount.name,
+            balance: newBalance,
+            parentAccount: editingAccount.parentAccount,
+            billingDay: editingAccount.billingDay
+          }
           : a
       ));
 
@@ -1240,7 +1240,7 @@ const BudgetApp = () => {
     const userAccounts = accounts
       .filter(a => a.user === user && a.parentAccount === null)
       .sort((a, b) => (a.order || 0) - (b.order || 0));
-    
+
     const index = userAccounts.findIndex(a => a.id === accountId);
     if (index === -1) return;
 
@@ -1262,7 +1262,7 @@ const BudgetApp = () => {
     const parents = userAccounts
       .filter(a => a.parentAccount === null)
       .sort((a, b) => (a.order || 0) - (b.order || 0));
-    
+
     const result = [];
     parents.forEach(parent => {
       result.push(parent);
@@ -1271,7 +1271,7 @@ const BudgetApp = () => {
         .sort((a, b) => (a.order || 0) - (b.order || 0));
       result.push(...children);
     });
-    
+
     return result;
   };
 
@@ -1317,21 +1317,19 @@ const BudgetApp = () => {
           <div className="flex mb-6">
             <button
               onClick={() => { setAuthMode('login'); setAuthError(''); }}
-              className={`flex-1 py-3 text-center font-semibold transition-all ${
-                authMode === 'login' 
-                  ? 'bg-purple-600 text-white rounded-lg' 
+              className={`flex-1 py-3 text-center font-semibold transition-all ${authMode === 'login'
+                  ? 'bg-purple-600 text-white rounded-lg'
                   : 'text-gray-500 hover:text-purple-600'
-              }`}
+                }`}
             >
               התחברות
             </button>
             <button
               onClick={() => { setAuthMode('register'); setAuthError(''); }}
-              className={`flex-1 py-3 text-center font-semibold transition-all ${
-                authMode === 'register' 
-                  ? 'bg-purple-600 text-white rounded-lg' 
+              className={`flex-1 py-3 text-center font-semibold transition-all ${authMode === 'register'
+                  ? 'bg-purple-600 text-white rounded-lg'
                   : 'text-gray-500 hover:text-purple-600'
-              }`}
+                }`}
             >
               הרשמה
             </button>
@@ -1344,7 +1342,7 @@ const BudgetApp = () => {
           )}
 
           <div className="space-y-4">
-          {authMode === 'register' && (
+            {authMode === 'register' && (
               <>
                 {inviteFamilyId && (
                   <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-2">
@@ -1426,10 +1424,10 @@ const BudgetApp = () => {
       // Convert string array to objects with id and name
       expenseCategories = categories.expense.map((name, index) => ({ id: index, name }));
     }
-    
-const currentUserName = typeof currentUser === 'object' ? currentUser.name : currentUser;
+
+    const currentUserName = typeof currentUser === 'object' ? currentUser.name : currentUser;
     const userAccounts = accounts ? accounts.filter(a => a.user === currentUserName) : [];
-    
+
     const categoryEmojis = {
       'סופר': '🛒',
       'אוכל בחוץ והזמנות': '🍕',
@@ -1515,8 +1513,8 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
       'דייטים': '💕',
       'זוגי': '💕'
     };
-    
-   const accountEmojis = {
+
+    const accountEmojis = {
       'כרטיס אשראי': '💳',
       'אשראי': '💳',
       'חשבון בנק': '🏦',
@@ -1525,11 +1523,11 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
       'Bit': '📱',
       'PayBox': '📱',
       'צ׳ק': '📝',
-       'צקים': '📝',
+      'צקים': '📝',
       'קרן כספית': '💰',
       'קרן': '💰'
     };
-    
+
     const getEmoji = (name, emojiMap) => {
       if (!name) return '📌';
       for (const [key, emoji] of Object.entries(emojiMap)) {
@@ -1543,7 +1541,7 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
         {/* Header */}
         <div className="px-6 py-4 text-white">
           <div className="flex items-center justify-between">
-            <button 
+            <button
               onClick={() => {
                 setIsQuickMode(false);
                 sessionStorage.removeItem('quickMode');
@@ -1559,7 +1557,7 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
 
         {/* Content */}
         <div className="flex-1 bg-white rounded-t-3xl p-6 space-y-6 overflow-y-auto">
-          
+
           {/* Amount Input */}
           <div className="text-center">
             <label className="block text-gray-500 text-sm mb-2">סכום</label>
@@ -1583,11 +1581,10 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
                 <button
                   key={cat.id || cat.name}
                   onClick={() => setQuickExpense({ ...quickExpense, category: cat.name })}
-                  className={`rounded-xl py-3 px-2 text-sm font-medium transition-all border-2 ${
-                    quickExpense.category === cat.name
+                  className={`rounded-xl py-3 px-2 text-sm font-medium transition-all border-2 ${quickExpense.category === cat.name
                       ? 'bg-purple-500 text-white border-purple-600 shadow-md scale-105'
                       : 'bg-purple-100 text-purple-700 border-transparent hover:bg-purple-200'
-                  }`}
+                    }`}
                 >
                   {getEmoji(cat.name, categoryEmojis)} {cat.name}
                 </button>
@@ -1603,11 +1600,10 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
                 <button
                   key={acc.id}
                   onClick={() => setQuickExpense({ ...quickExpense, account: acc.id })}
-                  className={`rounded-xl py-3 px-4 text-sm font-medium transition-all border-2 flex items-center justify-center gap-2 ${
-                    quickExpense.account === acc.id
+                  className={`rounded-xl py-3 px-4 text-sm font-medium transition-all border-2 flex items-center justify-center gap-2 ${quickExpense.account === acc.id
                       ? 'bg-blue-500 text-white border-blue-600 shadow-md scale-105'
                       : 'bg-gray-100 text-gray-700 border-transparent hover:bg-gray-200'
-                  }`}
+                    }`}
                 >
                   {getEmoji(acc.name, accountEmojis)} {acc.name}
                 </button>
@@ -1645,7 +1641,7 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
               </>
             )}
           </button>
-          
+
           <button
             onClick={() => {
               setIsQuickMode(false);
@@ -1661,12 +1657,12 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
     );
   };
 
- // Quick Expense Screen
+  // Quick Expense Screen
   const urlParams = new URLSearchParams(window.location.search);
   const isQuickFromUrl = urlParams.get('quick') === 'true' || sessionStorage.getItem('quickMode') === 'true';
-  
+
   const hasCategories = categories && (Array.isArray(categories) ? categories.length > 0 : (categories.expense?.length > 0 || categories.income?.length > 0));
-  
+
   if ((isQuickMode || isQuickFromUrl) && isLoggedIn && hasCategories) {
     return renderQuickExpense();
   }
@@ -1683,32 +1679,6 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
           </div>
           <div className="flex items-center gap-4">
             <span className="text-purple-200">שלום, {currentUser?.name}</span>
-            <div className="relative">
-             
-              <button
-                onClick={() => setShowShareMenu(!showShareMenu)}
-                className="bg-purple-500 hover:bg-purple-400 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-              >
-                <Share2 size={18} />
-                שיתוף
-              </button>
-              {showShareMenu && (
-                <div className="absolute left-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-2 z-50">
-                  <button
-                    onClick={() => generateInviteLink('invite')}
-                    className="w-full text-right px-4 py-2 text-gray-700 hover:bg-gray-100"
-                  >
-                    הזמנה לחשבון שלי
-                  </button>
-                  <button
-                    onClick={() => generateInviteLink('app')}
-                    className="w-full text-right px-4 py-2 text-gray-700 hover:bg-gray-100"
-                  >
-                    שיתוף האפליקציה
-                  </button>
-                </div>
-              )}
-            </div>
             <button
               onClick={() => {
                 setIsQuickMode(true);
@@ -1719,12 +1689,40 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
               <Zap className="w-4 h-4" />
               לאפליקציה המהירה
             </button>
-            <button
-              onClick={handleLogout}
-              className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded-lg transition-colors"
-            >
-              התנתק
-            </button>
+
+            <div className="flex flex-col gap-2">
+              <div className="relative">
+                <button
+                  onClick={() => setShowShareMenu(!showShareMenu)}
+                  className="bg-purple-500 hover:bg-purple-400 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors w-full justify-center"
+                >
+                  <Share2 size={18} />
+                  שיתוף
+                </button>
+                {showShareMenu && (
+                  <div className="absolute left-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-2 z-50">
+                    <button
+                      onClick={() => generateInviteLink('invite')}
+                      className="w-full text-right px-4 py-2 text-gray-700 hover:bg-gray-100"
+                    >
+                      הזמנה לחשבון שלי
+                    </button>
+                    <button
+                      onClick={() => generateInviteLink('app')}
+                      className="w-full text-right px-4 py-2 text-gray-700 hover:bg-gray-100"
+                    >
+                      שיתוף האפליקציה
+                    </button>
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={handleLogout}
+                className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded-lg transition-colors w-full text-center"
+              >
+                התנתק
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -1742,7 +1740,7 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
               </button>
             </div>
             <p className="text-gray-600 mb-4">
-              {shareType === 'invite' 
+              {shareType === 'invite'
                 ? 'שלח את הקישור הזה למי שתרצה להזמין לחשבון המשפחתי שלך:'
                 : 'שתף את הקישור הזה כדי להמליץ על האפליקציה:'
               }
@@ -1756,9 +1754,8 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
               />
               <button
                 onClick={copyInviteLink}
-                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-                  linkCopied ? 'bg-green-500 text-white' : 'bg-purple-600 text-white hover:bg-purple-700'
-                }`}
+                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${linkCopied ? 'bg-green-500 text-white' : 'bg-purple-600 text-white hover:bg-purple-700'
+                  }`}
               >
                 {linkCopied ? <Check size={18} /> : <Copy size={18} />}
                 {linkCopied ? 'הועתק!' : 'העתק'}
@@ -1782,11 +1779,10 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-6 py-4 font-medium transition-colors whitespace-nowrap ${
-                  activeTab === tab.id
+                className={`flex items-center gap-2 px-6 py-4 font-medium transition-colors whitespace-nowrap ${activeTab === tab.id
                     ? 'text-purple-600 border-b-2 border-purple-600 bg-purple-50'
                     : 'text-gray-600 hover:text-purple-600 hover:bg-gray-50'
-                }`}
+                  }`}
               >
                 <tab.icon size={20} />
                 {tab.label}
@@ -1949,27 +1945,27 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
             <tbody>
               {isAddingInline === type && (
                 <tr className="bg-yellow-50">
-                  <td className="p-2"><input type="date" value={inlineTransaction.date} onChange={(e) => setInlineTransaction({...inlineTransaction, date: e.target.value})} className="border rounded p-1 w-full" /></td>
+                  <td className="p-2"><input type="date" value={inlineTransaction.date} onChange={(e) => setInlineTransaction({ ...inlineTransaction, date: e.target.value })} className="border rounded p-1 w-full" /></td>
                   <td className="p-2">
-                    <select value={inlineTransaction.category} onChange={(e) => setInlineTransaction({...inlineTransaction, category: e.target.value})} className="border rounded p-1 w-full">
+                    <select value={inlineTransaction.category} onChange={(e) => setInlineTransaction({ ...inlineTransaction, category: e.target.value })} className="border rounded p-1 w-full">
                       <option value="">בחר</option>
                       {categories[type].map(cat => <option key={cat} value={cat}>{cat}</option>)}
                     </select>
                   </td>
-                  <td className="p-2"><input type="number" value={inlineTransaction.amount} onChange={(e) => setInlineTransaction({...inlineTransaction, amount: e.target.value})} className="border rounded p-1 w-full" placeholder="סכום" /></td>
+                  <td className="p-2"><input type="number" value={inlineTransaction.amount} onChange={(e) => setInlineTransaction({ ...inlineTransaction, amount: e.target.value })} className="border rounded p-1 w-full" placeholder="סכום" /></td>
                   <td className="p-2">
-                    <select value={inlineTransaction.user} onChange={(e) => setInlineTransaction({...inlineTransaction, user: e.target.value, account: ''})} className="border rounded p-1 w-full">
+                    <select value={inlineTransaction.user} onChange={(e) => setInlineTransaction({ ...inlineTransaction, user: e.target.value, account: '' })} className="border rounded p-1 w-full">
                       <option value="">בחר</option>
                       {familyMembers.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
                     </select>
                   </td>
                   <td className="p-2">
-                    <select value={inlineTransaction.account} onChange={(e) => setInlineTransaction({...inlineTransaction, account: e.target.value})} className="border rounded p-1 w-full">
+                    <select value={inlineTransaction.account} onChange={(e) => setInlineTransaction({ ...inlineTransaction, account: e.target.value })} className="border rounded p-1 w-full">
                       <option value="">בחר</option>
                       {accounts.filter(a => a.user === inlineTransaction.user).map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
                     </select>
                   </td>
-                  <td className="p-2"><input type="text" value={inlineTransaction.note} onChange={(e) => setInlineTransaction({...inlineTransaction, note: e.target.value})} className="border rounded p-1 w-full" /></td>
+                  <td className="p-2"><input type="text" value={inlineTransaction.note} onChange={(e) => setInlineTransaction({ ...inlineTransaction, note: e.target.value })} className="border rounded p-1 w-full" /></td>
                   <td className="p-2">
                     <div className="flex gap-1">
                       <button onClick={saveInlineTransaction} disabled={isSaving} className="text-green-600 hover:text-green-800"><Check size={18} /></button>
@@ -1982,12 +1978,12 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
                 <tr key={t.id} className="border-t hover:bg-gray-50">
                   {isEditingTransaction === t.id ? (
                     <>
-                      <td className="p-2"><input type="date" value={editingTransaction.date} onChange={(e) => setEditingTransaction({...editingTransaction, date: e.target.value})} className="border rounded p-1 w-full" /></td>
-                      <td className="p-2"><select value={editingTransaction.category} onChange={(e) => setEditingTransaction({...editingTransaction, category: e.target.value})} className="border rounded p-1 w-full">{categories[type].map(cat => <option key={cat} value={cat}>{cat}</option>)}</select></td>
-                      <td className="p-2"><input type="number" value={editingTransaction.amount} onChange={(e) => setEditingTransaction({...editingTransaction, amount: e.target.value})} className="border rounded p-1 w-full" /></td>
-                      <td className="p-2"><select value={editingTransaction.user} onChange={(e) => setEditingTransaction({...editingTransaction, user: e.target.value})} className="border rounded p-1 w-full">{familyMembers.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}</select></td>
-                      <td className="p-2"><select value={editingTransaction.account} onChange={(e) => setEditingTransaction({...editingTransaction, account: e.target.value})} className="border rounded p-1 w-full">{accounts.filter(a => a.user === editingTransaction.user).map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}</select></td>
-                      <td className="p-2"><input type="text" value={editingTransaction.note || ''} onChange={(e) => setEditingTransaction({...editingTransaction, note: e.target.value})} className="border rounded p-1 w-full" /></td>
+                      <td className="p-2"><input type="date" value={editingTransaction.date} onChange={(e) => setEditingTransaction({ ...editingTransaction, date: e.target.value })} className="border rounded p-1 w-full" /></td>
+                      <td className="p-2"><select value={editingTransaction.category} onChange={(e) => setEditingTransaction({ ...editingTransaction, category: e.target.value })} className="border rounded p-1 w-full">{categories[type].map(cat => <option key={cat} value={cat}>{cat}</option>)}</select></td>
+                      <td className="p-2"><input type="number" value={editingTransaction.amount} onChange={(e) => setEditingTransaction({ ...editingTransaction, amount: e.target.value })} className="border rounded p-1 w-full" /></td>
+                      <td className="p-2"><select value={editingTransaction.user} onChange={(e) => setEditingTransaction({ ...editingTransaction, user: e.target.value })} className="border rounded p-1 w-full">{familyMembers.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}</select></td>
+                      <td className="p-2"><select value={editingTransaction.account} onChange={(e) => setEditingTransaction({ ...editingTransaction, account: e.target.value })} className="border rounded p-1 w-full">{accounts.filter(a => a.user === editingTransaction.user).map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}</select></td>
+                      <td className="p-2"><input type="text" value={editingTransaction.note || ''} onChange={(e) => setEditingTransaction({ ...editingTransaction, note: e.target.value })} className="border rounded p-1 w-full" /></td>
                       <td className="p-2"><div className="flex gap-1"><button onClick={saveEditTransaction} className="text-green-600"><Check size={18} /></button><button onClick={cancelEditTransaction} className="text-red-600"><X size={18} /></button></div></td>
                     </>
                   ) : (
@@ -2015,18 +2011,18 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
         <div className="bg-white rounded-xl shadow-md p-4">
           <h3 className="font-bold text-gray-700 mb-3">סינון</h3>
           <div className="flex flex-wrap gap-3">
-            <select value={filterOptions.period} onChange={(e) => setFilterOptions({...filterOptions, period: e.target.value})} className="border rounded-lg p-2">
+            <select value={filterOptions.period} onChange={(e) => setFilterOptions({ ...filterOptions, period: e.target.value })} className="border rounded-lg p-2">
               <option value="monthly">חודשי</option>
               <option value="yearly">שנתי</option>
               <option value="custom">מותאם אישית</option>
             </select>
             {filterOptions.period === 'custom' && (
               <>
-                <input type="date" value={filterOptions.startDate} onChange={(e) => setFilterOptions({...filterOptions, startDate: e.target.value})} className="border rounded-lg p-2" />
-                <input type="date" value={filterOptions.endDate} onChange={(e) => setFilterOptions({...filterOptions, endDate: e.target.value})} className="border rounded-lg p-2" />
+                <input type="date" value={filterOptions.startDate} onChange={(e) => setFilterOptions({ ...filterOptions, startDate: e.target.value })} className="border rounded-lg p-2" />
+                <input type="date" value={filterOptions.endDate} onChange={(e) => setFilterOptions({ ...filterOptions, endDate: e.target.value })} className="border rounded-lg p-2" />
               </>
             )}
-            <select value={filterOptions.user} onChange={(e) => setFilterOptions({...filterOptions, user: e.target.value})} className="border rounded-lg p-2">
+            <select value={filterOptions.user} onChange={(e) => setFilterOptions({ ...filterOptions, user: e.target.value })} className="border rounded-lg p-2">
               <option value="all">כולם</option>
               {familyMembers.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
             </select>
@@ -2096,18 +2092,18 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
                   {editingAccount?.id === acc.id ? (
                     <div className="flex-1 space-y-2">
                       <div className="flex gap-2">
-                        <input type="text" value={editingAccount.name} onChange={(e) => setEditingAccount({...editingAccount, name: e.target.value})} className="flex-1 border rounded p-1" />
+                        <input type="text" value={editingAccount.name} onChange={(e) => setEditingAccount({ ...editingAccount, name: e.target.value })} className="flex-1 border rounded p-1" />
                         <input type="number" value={newAccountBalance} onChange={(e) => setNewAccountBalance(e.target.value)} className="w-32 border rounded p-1" />
                       </div>
                       <div className="flex gap-2">
-                        <select value={editingAccount.parentAccount || ''} onChange={(e) => setEditingAccount({...editingAccount, parentAccount: e.target.value ? e.target.value : null})} className="flex-1 border rounded p-1">
+                        <select value={editingAccount.parentAccount || ''} onChange={(e) => setEditingAccount({ ...editingAccount, parentAccount: e.target.value ? e.target.value : null })} className="flex-1 border rounded p-1">
                           <option value="">ללא חשבון אב</option>
                           {getParentAccounts(member.name).filter(a => a.id !== acc.id).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                         </select>
-                        <select value={editingAccount.billingDay === null ? '' : editingAccount.billingDay} onChange={(e) => setEditingAccount({...editingAccount, billingDay: e.target.value === '' ? null : e.target.value})} className="flex-1 border rounded p-1">
+                        <select value={editingAccount.billingDay === null ? '' : editingAccount.billingDay} onChange={(e) => setEditingAccount({ ...editingAccount, billingDay: e.target.value === '' ? null : e.target.value })} className="flex-1 border rounded p-1">
                           <option value="">ללא תאריך חיוב</option>
                           <option value="0">דיירקט</option>
-                          {[...Array(28)].map((_, i) => <option key={i+1} value={i+1}>חיוב ב-{i+1} לחודש</option>)}
+                          {[...Array(28)].map((_, i) => <option key={i + 1} value={i + 1}>חיוב ב-{i + 1} לחודש</option>)}
                         </select>
                       </div>
                       <div className="flex gap-2">
@@ -2139,18 +2135,18 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
             </div>
             {isAddingAccount && newAccount.user === member.name ? (
               <div className="mt-4 p-3 bg-yellow-50 rounded-lg space-y-2">
-                <input type="text" value={newAccount.name} onChange={(e) => setNewAccount({...newAccount, name: e.target.value})} className="w-full border rounded p-2" placeholder="שם המקור" />
+                <input type="text" value={newAccount.name} onChange={(e) => setNewAccount({ ...newAccount, name: e.target.value })} className="w-full border rounded p-2" placeholder="שם המקור" />
                 <div className="flex gap-2">
-                  <input type="number" value={newAccount.balance} onChange={(e) => setNewAccount({...newAccount, balance: e.target.value})} className="flex-1 border rounded p-2" placeholder="יתרה" />
-                  <select value={newAccount.parentAccount || ''} onChange={(e) => setNewAccount({...newAccount, parentAccount: e.target.value ? e.target.value : null})} className="flex-1 border rounded p-2">
+                  <input type="number" value={newAccount.balance} onChange={(e) => setNewAccount({ ...newAccount, balance: e.target.value })} className="flex-1 border rounded p-2" placeholder="יתרה" />
+                  <select value={newAccount.parentAccount || ''} onChange={(e) => setNewAccount({ ...newAccount, parentAccount: e.target.value ? e.target.value : null })} className="flex-1 border rounded p-2">
                     <option value="">ללא חשבון אב</option>
                     {getParentAccounts(member.name).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                 </div>
-                <select value={newAccount.billingDay === null ? '' : newAccount.billingDay} onChange={(e) => setNewAccount({...newAccount, billingDay: e.target.value === '' ? null : e.target.value})} className="w-full border rounded p-2">
+                <select value={newAccount.billingDay === null ? '' : newAccount.billingDay} onChange={(e) => setNewAccount({ ...newAccount, billingDay: e.target.value === '' ? null : e.target.value })} className="w-full border rounded p-2">
                   <option value="">ללא תאריך חיוב</option>
                   <option value="0">דיירקט</option>
-                  {[...Array(28)].map((_, i) => <option key={i+1} value={i+1}>כרטיס אשראי - חיוב ב-{i+1}</option>)}
+                  {[...Array(28)].map((_, i) => <option key={i + 1} value={i + 1}>כרטיס אשראי - חיוב ב-{i + 1}</option>)}
                 </select>
                 <div className="flex gap-2">
                   <button onClick={addNewAccount} disabled={isSaving} className="flex-1 bg-green-500 text-white rounded p-2 hover:bg-green-600 disabled:opacity-50">{isSaving ? <Loader2 className="animate-spin mx-auto" size={20} /> : 'הוסף'}</button>
@@ -2158,7 +2154,7 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
                 </div>
               </div>
             ) : (
-              <button onClick={() => { setIsAddingAccount(true); setNewAccount({...newAccount, user: member.name}); }} className="mt-4 w-full border-2 border-dashed border-gray-300 rounded-lg p-3 text-gray-500 hover:border-purple-400 hover:text-purple-600 flex items-center justify-center gap-2">
+              <button onClick={() => { setIsAddingAccount(true); setNewAccount({ ...newAccount, user: member.name }); }} className="mt-4 w-full border-2 border-dashed border-gray-300 rounded-lg p-3 text-gray-500 hover:border-purple-400 hover:text-purple-600 flex items-center justify-center gap-2">
                 <PlusCircle size={20} /> הוסף מקור כספי
               </button>
             )}
