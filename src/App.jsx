@@ -1429,7 +1429,7 @@ const BudgetApp = () => {
     
 const currentUserName = typeof currentUser === 'object' ? currentUser.name : currentUser;
     console.log('currentUserName:', currentUserName);
-    console.log('accounts:', accounts?.map(a => ({ name: a.name, user_name: a.user_name })));
+    console.log('Full first account:', accounts?.[0]);
     const userAccounts = accounts ? accounts.filter(a => a.user_name === currentUserName) : [];
     console.log('userAccounts:', userAccounts);
     
