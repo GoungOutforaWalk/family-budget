@@ -1428,10 +1428,7 @@ const BudgetApp = () => {
     }
     
    const currentUserName = typeof currentUser === 'object' ? currentUser.name : currentUser;
-    console.log('currentUserName:', currentUserName);
-    console.log('accounts user_names:', accounts?.map(a => a.user_name));
-    // Show all accounts for now (not filtered by user)
-    const userAccounts = accounts || [];
+    const userAccounts = accounts ? accounts.filter(a => a.user_name === currentUserName) : [];
     
     const categoryEmojis = {
       'סופר': '🛒',
@@ -1528,7 +1525,9 @@ const BudgetApp = () => {
       'Bit': '📱',
       'PayBox': '📱',
       'צ׳ק': '📝',
-      'צ׳קים': '📝',
+       'צקים': '📝',
+      'קרן כספית': '💰',
+      'קרן': '💰'
     };
     
     const getEmoji = (name, emojiMap) => {
