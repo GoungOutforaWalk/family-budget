@@ -1675,7 +1675,7 @@ const currentUserName = typeof currentUser === 'object' ? currentUser.name : cur
   return (
     <div className="min-h-screen bg-gray-100" dir="rtl">
       {/* Header */}
-      <header className="bg-gradient-to-r from-purple-600 to-blue-600 text-white p-4 shadow-lg">
+      <header className="bg-gradient-to-r from-purple-600 to-blue-600 text-white p-4 overflow-x-hidden">
         <div className="container mx-auto flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-bold">ניהול תקציב משפחתי</h1>
