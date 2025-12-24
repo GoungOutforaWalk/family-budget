@@ -1427,8 +1427,11 @@ const BudgetApp = () => {
       expenseCategories = categories.expense.map((name, index) => ({ id: index, name }));
     }
     
-   const currentUserName = typeof currentUser === 'object' ? currentUser.name : currentUser;
+const currentUserName = typeof currentUser === 'object' ? currentUser.name : currentUser;
+    console.log('currentUserName:', currentUserName);
+    console.log('accounts:', accounts?.map(a => ({ name: a.name, user_name: a.user_name })));
     const userAccounts = accounts ? accounts.filter(a => a.user_name === currentUserName) : [];
+    console.log('userAccounts:', userAccounts);
     
     const categoryEmojis = {
       'סופר': '🛒',
