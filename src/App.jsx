@@ -1428,6 +1428,8 @@ const BudgetApp = () => {
     }
     
 const currentUserName = typeof currentUser === 'object' ? currentUser.name : currentUser;
+    console.log('All users in accounts:', [...new Set(accounts?.map(a => a.user))]);
+    console.log('currentUserName:', currentUserName);
     const userAccounts = accounts ? accounts.filter(a => a.user === currentUserName) : [];
     
     const categoryEmojis = {
