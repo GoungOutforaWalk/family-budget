@@ -12,43 +12,84 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="הוצאה מהירה">
   <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      margin: 0;
       min-height: 100vh;
       background: linear-gradient(135deg, #8B5CF6, #3B82F6);
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
       font-family: Arial, sans-serif;
+      padding: 20px;
     }
-    .loader {
+    .container {
       text-align: center;
       color: white;
     }
-    .spinner {
-      width: 50px;
-      height: 50px;
-      border: 4px solid rgba(255,255,255,0.3);
-      border-top-color: white;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin: 0 auto 20px;
+    .logo {
+      width: 120px;
+      height: 120px;
+      margin-bottom: 20px;
+      border-radius: 24px;
     }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
+    h1 {
+      font-size: 28px;
+      margin-bottom: 10px;
+    }
+    p {
+      font-size: 16px;
+      opacity: 0.9;
+      margin-bottom: 30px;
+    }
+    .btn {
+      background: white;
+      color: #8B5CF6;
+      border: none;
+      padding: 16px 40px;
+      font-size: 18px;
+      font-weight: bold;
+      border-radius: 12px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .install-hint {
+      margin-top: 40px;
+      padding: 20px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 12px;
+      max-width: 300px;
+    }
+    .install-hint h3 {
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+    .install-hint ol {
+      text-align: right;
+      font-size: 14px;
+      padding-right: 20px;
+    }
+    .install-hint li {
+      margin-bottom: 5px;
     }
   </style>
 </head>
 <body>
-  <div class="loader">
-    <div class="spinner"></div>
-    <p>טוען...</p>
+  <div class="container">
+    <img src="/logo-quick-192x192.png" alt="לוגו" class="logo">
+    <h1>⚡ הוצאה מהירה</h1>
+    <p>הוספת הוצאות במהירות לתקציב המשפחתי</p>
+    <a href="/?quick=true" class="btn">התחל</a>
+    
+    <div class="install-hint">
+      <h3>📱 להתקנה במסך הבית:</h3>
+      <ol>
+        <li>לחץ על כפתור השיתוף (⬆️)</li>
+        <li>בחר "הוסף למסך הבית"</li>
+        <li>אשר את ההתקנה</li>
+      </ol>
+    </div>
   </div>
-  <script>
-    // המתן שהדפדפן יקרא את ה-manifest לפני ההפניה
-    setTimeout(() => {
-      window.location.replace('/?quick=true');
-    }, 1000);
-  </script>
 </body>
 </html>
