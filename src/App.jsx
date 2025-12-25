@@ -1318,8 +1318,8 @@ const BudgetApp = () => {
             <button
               onClick={() => { setAuthMode('login'); setAuthError(''); }}
               className={`flex-1 py-3 text-center font-semibold transition-all ${authMode === 'login'
-                  ? 'bg-purple-600 text-white rounded-lg'
-                  : 'text-gray-500 hover:text-purple-600'
+                ? 'bg-purple-600 text-white rounded-lg'
+                : 'text-gray-500 hover:text-purple-600'
                 }`}
             >
               התחברות
@@ -1327,8 +1327,8 @@ const BudgetApp = () => {
             <button
               onClick={() => { setAuthMode('register'); setAuthError(''); }}
               className={`flex-1 py-3 text-center font-semibold transition-all ${authMode === 'register'
-                  ? 'bg-purple-600 text-white rounded-lg'
-                  : 'text-gray-500 hover:text-purple-600'
+                ? 'bg-purple-600 text-white rounded-lg'
+                : 'text-gray-500 hover:text-purple-600'
                 }`}
             >
               הרשמה
@@ -1430,6 +1430,7 @@ const BudgetApp = () => {
 
     const categoryEmojis = {
       'סופר': '🛒',
+      'קניות': '🛒',
       'אוכל בחוץ והזמנות': '🍕',
       'רכב': '🚗',
       'לימודים': '📚',
@@ -1511,7 +1512,12 @@ const BudgetApp = () => {
       'רופאה': '👩‍⚕️',
       'דייט': '💕',
       'דייטים': '💕',
-      'זוגי': '💕'
+      'זוגי': '💕',
+      'תקשורת': '📳',
+      'מנויים': '📳',
+      'אינטרנט': '📳',
+      'טלפון': '📳',
+      'אפליקציות': '📳',
     };
 
     const accountEmojis = {
@@ -1582,8 +1588,8 @@ const BudgetApp = () => {
                   key={cat.id || cat.name}
                   onClick={() => setQuickExpense({ ...quickExpense, category: cat.name })}
                   className={`rounded-xl py-3 px-2 text-sm font-medium transition-all border-2 ${quickExpense.category === cat.name
-                      ? 'bg-purple-500 text-white border-purple-600 shadow-md scale-105'
-                      : 'bg-purple-100 text-purple-700 border-transparent hover:bg-purple-200'
+                    ? 'bg-purple-500 text-white border-purple-600 shadow-md scale-105'
+                    : 'bg-purple-100 text-purple-700 border-transparent hover:bg-purple-200'
                     }`}
                 >
                   {getEmoji(cat.name, categoryEmojis)} {cat.name}
@@ -1601,8 +1607,8 @@ const BudgetApp = () => {
                   key={acc.id}
                   onClick={() => setQuickExpense({ ...quickExpense, account: acc.id })}
                   className={`rounded-xl py-3 px-4 text-sm font-medium transition-all border-2 flex items-center justify-center gap-2 ${quickExpense.account === acc.id
-                      ? 'bg-blue-500 text-white border-blue-600 shadow-md scale-105'
-                      : 'bg-gray-100 text-gray-700 border-transparent hover:bg-gray-200'
+                    ? 'bg-blue-500 text-white border-blue-600 shadow-md scale-105'
+                    : 'bg-gray-100 text-gray-700 border-transparent hover:bg-gray-200'
                     }`}
                 >
                   {getEmoji(acc.name, accountEmojis)} {acc.name}
@@ -1780,8 +1786,8 @@ const BudgetApp = () => {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-2 px-6 py-4 font-medium transition-colors whitespace-nowrap ${activeTab === tab.id
-                    ? 'text-purple-600 border-b-2 border-purple-600 bg-purple-50'
-                    : 'text-gray-600 hover:text-purple-600 hover:bg-gray-50'
+                  ? 'text-purple-600 border-b-2 border-purple-600 bg-purple-50'
+                  : 'text-gray-600 hover:text-purple-600 hover:bg-gray-50'
                   }`}
               >
                 <tab.icon size={20} />
