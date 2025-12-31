@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { supabase } from './supabaseClient';
 import { PlusCircle, TrendingUp, TrendingDown, Zap, Wallet, Tag, List, Trash2, Edit2, X, Check, ArrowUp, ArrowDown, Users, LogIn, UserPlus, Share2, Link, Copy, Loader2 } from 'lucide-react';
 
@@ -650,7 +650,8 @@ const BudgetApp = () => {
     setSortConfig({ key, direction });
   };
 
-  const calculateSummary = useCallback(() => {
+  const summary = useMemo(() => {
+    console.log('[calculateSummary] transactions:', transactions.length, transactions);
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
@@ -683,8 +684,6 @@ const BudgetApp = () => {
 
     return { income, expense, balance, filtered };
   }, [transactions, filterOptions]);
-
-  const summary = calculateSummary();
 
   const expensesByCategory = {};
   summary.filtered.filter(t => t.type === 'expense').forEach(t => {
@@ -731,55 +730,155 @@ const BudgetApp = () => {
       return acc;
     }));
   }, [accounts]);
+// ========================================
+// Quick Expense
+// ========================================
+const saveQuickExpense = async () => {
+  if (!quickExpense.amount || !quickExpense.category || !quickExpense.account) {
+    alert('נא למלא סכום, קטגוריה ומקור תשלום');
+    return;
+  }
 
-  // ========================================
-  // Quick Expense
-  // ========================================
-  const saveQuickExpense = async () => {
-    if (!quickExpense.amount || !quickExpense.category || !quickExpense.account) {
-      alert('נא למלא סכום, קטגוריה ומקור תשלום');
-      return;
-    }
+  const amount = parseFloat(quickExpense.amount);
+  const account = accounts.find(a => a.id === quickExpense.account);
+  
+  if (!account) {
+    alert('מקור תשלום לא נמצא');
+    return;
+  }
 
-    setIsSaving(true);
-    try {
-      const { error } = await supabase.from('transactions').insert({
-        family_id: familyId,
-        user_name: currentUser,
-        type: 'expense',
-        amount: parseFloat(quickExpense.amount),
-        category: quickExpense.category,
-        account_id: quickExpense.account,
-        note: quickExpense.note || '',
-        date: new Date().toISOString().split('T')[0]
+  // Check if this is a Bit/PayBox type account
+  const isPaymentApp = account.name.includes('Bit') || account.name.includes('PayBox');
+  
+  // Build the list of accounts to update
+  let accountsToUpdate = [];
+  
+  if (isPaymentApp) {
+    if (account.balance >= amount) {
+      // Enough balance in Bit/PayBox - charge ONLY from Bit/PayBox
+      accountsToUpdate.push({
+        id: account.id,
+        newBalance: account.balance - amount
       });
-
-      if (error) throw error;
-
-      // Update account balance
-      const account = accounts.find(a => a.id === quickExpense.account);
-      if (account) {
-        await supabase
-          .from('accounts')
-          .update({ balance: account.balance - parseFloat(quickExpense.amount) })
-          .eq('id', quickExpense.account);
+    } else {
+      // Not enough balance in Bit/PayBox - charge from credit card (and bank)
+      // Bit/PayBox stays unchanged!
+      if (account.parentAccount) {
+        const creditCard = accounts.find(a => a.id === account.parentAccount);
+        if (creditCard) {
+          accountsToUpdate.push({
+            id: creditCard.id,
+            newBalance: creditCard.balance - amount
+          });
+          
+          // Also update bank account if credit card has a parent
+          if (creditCard.parentAccount) {
+            const bankAccount = accounts.find(a => a.id === creditCard.parentAccount);
+            if (bankAccount) {
+              accountsToUpdate.push({
+                id: bankAccount.id,
+                newBalance: bankAccount.balance - amount
+              });
+            }
+          }
+        } else {
+          alert('כרטיס האשראי המקושר לא נמצא');
+          return;
+        }
+      } else {
+        alert(`אין מספיק יתרה ב-${account.name} ואין כרטיס אשראי מקושר.`);
+        return;
       }
-
-      // Reset form
-      setQuickExpense({ amount: '', category: '', account: '', note: '' });
-
-      // Reload data
-      await loadFamilyData(familyId);
-
-      alert('✅ ההוצאה נשמרה!');
-    } catch (error) {
-      console.error('Error saving quick expense:', error);
-      alert('שגיאה בשמירת ההוצאה');
-    } finally {
-      setIsSaving(false);
     }
-  };
+  } else {
+    // Regular account (credit card or bank) - charge it
+    accountsToUpdate.push({
+      id: account.id,
+      newBalance: account.balance - amount
+    });
+    
+    // If it has a parent (e.g., credit card -> bank), update parent too
+    if (account.parentAccount) {
+      const parentAccount = accounts.find(a => a.id === account.parentAccount);
+      if (parentAccount) {
+        accountsToUpdate.push({
+          id: parentAccount.id,
+          newBalance: parentAccount.balance - amount
+        });
+      }
+    }
+  }
 
+  setIsSaving(true);
+  try {
+    // Insert transaction
+    const { data, error } = await supabase.from('transactions').insert({
+      family_id: familyId,
+      user_name: typeof currentUser === 'object' ? currentUser.name : currentUser,
+      type: 'expense',
+      amount: amount,
+      category: quickExpense.category,
+      account_id: quickExpense.account,
+      note: quickExpense.note || '',
+      date: new Date().toISOString().split('T')[0]
+    }).select().single();
+
+    if (error) throw error;
+
+    // Update all accounts in Supabase
+    for (const acc of accountsToUpdate) {
+      await supabase
+        .from('accounts')
+        .update({ balance: acc.newBalance })
+        .eq('id', acc.id);
+    }
+
+    // Update local state
+    setAccounts(prevAccounts => prevAccounts.map(acc => {
+      const update = accountsToUpdate.find(u => u.id === acc.id);
+      if (update) {
+        return { ...acc, balance: update.newBalance };
+      }
+      return acc;
+    }));
+
+    // Add transaction to local state
+    const transaction = {
+      id: data.id,
+      type: data.type,
+      amount: parseFloat(data.amount),
+      category: data.category,
+      date: data.date,
+      user: data.user_name,
+      account: data.account_id,
+      note: data.note,
+      isRecurring: data.is_recurring,
+      frequency: data.frequency
+    };
+    console.log('[saveQuickExpense] Adding transaction:', transaction);
+    setTransactions(prevTransactions => {
+      console.log('[saveQuickExpense] Current count:', prevTransactions.length);
+      const updated = [transaction, ...prevTransactions];
+      console.log('[saveQuickExpense] New count:', updated.length);
+      return updated;
+    });
+
+    // Reset form
+    setQuickExpense({ amount: '', category: '', account: '', note: '' });
+
+    // Show success message
+    if (isPaymentApp && account.balance < amount) {
+      alert(`✅ ההוצאה נשמרה!\n\nהסכום ירד מכרטיס האשראי וחשבון הבנק\n(כי לא הייתה מספיק יתרה ב-${account.name})`);
+    } else {
+      alert('✅ ההוצאה נשמרה!');
+    }
+  } catch (error) {
+    console.error('Error saving quick expense:', error);
+    alert('שגיאה בשמירת ההוצאה');
+  } finally {
+    setIsSaving(false);
+  }
+};
   // ========================================
   // SUPABASE: Transaction Management
   // ========================================
@@ -789,12 +888,103 @@ const BudgetApp = () => {
       return;
     }
 
+    const amount = parseFloat(newTransaction.amount);
+    const account = accounts.find(a => a.id === newTransaction.account);
+
+    if (!account) {
+      alert('מקור תשלום לא נמצא');
+      return;
+    }
+
+    // Build the list of accounts to update (only for expenses)
+    let accountsToUpdate = [];
+
+    if (newTransaction.type === 'expense') {
+      // Check if this is a Bit/PayBox type account
+      const isPaymentApp = account.name.includes('Bit') || account.name.includes('PayBox');
+
+      if (isPaymentApp) {
+        if (account.balance >= amount) {
+          // Enough balance in Bit/PayBox - charge ONLY from Bit/PayBox
+          accountsToUpdate.push({
+            id: account.id,
+            newBalance: account.balance - amount
+          });
+        } else {
+          // Not enough balance in Bit/PayBox - charge from credit card (and bank)
+          // Bit/PayBox stays unchanged!
+          if (account.parentAccount) {
+            const creditCard = accounts.find(a => a.id === account.parentAccount);
+            if (creditCard) {
+              accountsToUpdate.push({
+                id: creditCard.id,
+                newBalance: creditCard.balance - amount
+              });
+
+              // Also update bank account if credit card has a parent
+              if (creditCard.parentAccount) {
+                const bankAccount = accounts.find(a => a.id === creditCard.parentAccount);
+                if (bankAccount) {
+                  accountsToUpdate.push({
+                    id: bankAccount.id,
+                    newBalance: bankAccount.balance - amount
+                  });
+                }
+              }
+            } else {
+              alert('כרטיס האשראי המקושר לא נמצא');
+              return;
+            }
+          } else {
+            alert(`אין מספיק יתרה ב-${account.name} ואין כרטיס אשראי מקושר.`);
+            return;
+          }
+        }
+      } else {
+        // Regular account (credit card or bank) - charge it
+        accountsToUpdate.push({
+          id: account.id,
+          newBalance: account.balance - amount
+        });
+
+        // If it has a parent (e.g., credit card -> bank), update parent too
+        if (account.parentAccount) {
+          const parentAccount = accounts.find(a => a.id === account.parentAccount);
+          if (parentAccount) {
+            accountsToUpdate.push({
+              id: parentAccount.id,
+              newBalance: parentAccount.balance - amount
+            });
+          }
+        }
+      }
+    } else {
+      // Income - add to the account
+      const isPaymentApp = account.name.includes('Bit') || account.name.includes('PayBox');
+
+      accountsToUpdate.push({
+        id: account.id,
+        newBalance: account.balance + amount
+      });
+
+      // Only update parent if this is NOT Bit/PayBox (Bit/PayBox keep their own balance)
+      if (account.parentAccount && !isPaymentApp) {
+        const parentAccount = accounts.find(a => a.id === account.parentAccount);
+        if (parentAccount) {
+          accountsToUpdate.push({
+            id: parentAccount.id,
+            newBalance: parentAccount.balance + amount
+          });
+        }
+      }
+    }
+
     setIsSaving(true);
     try {
       const transactionData = {
         family_id: familyId,
         type: newTransaction.type,
-        amount: parseFloat(newTransaction.amount),
+        amount: amount,
         category: newTransaction.category,
         date: newTransaction.date,
         user_name: newTransaction.user,
@@ -812,6 +1002,23 @@ const BudgetApp = () => {
 
       if (error) throw error;
 
+      // Update all accounts in Supabase
+      for (const acc of accountsToUpdate) {
+        await supabase
+          .from('accounts')
+          .update({ balance: acc.newBalance })
+          .eq('id', acc.id);
+      }
+
+      // Update local state
+      setAccounts(prevAccounts => prevAccounts.map(acc => {
+        const update = accountsToUpdate.find(u => u.id === acc.id);
+        if (update) {
+          return { ...acc, balance: update.newBalance };
+        }
+        return acc;
+      }));
+
       const transaction = {
         id: data.id,
         type: data.type,
@@ -825,8 +1032,7 @@ const BudgetApp = () => {
         frequency: data.frequency
       };
 
-      setTransactions([transaction, ...transactions]);
-      await updateAccountBalance(transaction.account, transaction.amount, transaction.type);
+      setTransactions(prevTransactions => [transaction, ...prevTransactions]);
 
       setNewTransaction({
         type: 'expense',
@@ -940,12 +1146,103 @@ const BudgetApp = () => {
       return;
     }
 
+    const amount = parseFloat(inlineTransaction.amount);
+    const account = accounts.find(a => a.id === inlineTransaction.account);
+
+    if (!account) {
+      alert('מקור תשלום לא נמצא');
+      return;
+    }
+
+    // Build the list of accounts to update (only for expenses)
+    let accountsToUpdate = [];
+
+    if (inlineTransaction.type === 'expense') {
+      // Check if this is a Bit/PayBox type account
+      const isPaymentApp = account.name.includes('Bit') || account.name.includes('PayBox');
+
+      if (isPaymentApp) {
+        if (account.balance >= amount) {
+          // Enough balance in Bit/PayBox - charge ONLY from Bit/PayBox
+          accountsToUpdate.push({
+            id: account.id,
+            newBalance: account.balance - amount
+          });
+        } else {
+          // Not enough balance in Bit/PayBox - charge from credit card (and bank)
+          // Bit/PayBox stays unchanged!
+          if (account.parentAccount) {
+            const creditCard = accounts.find(a => a.id === account.parentAccount);
+            if (creditCard) {
+              accountsToUpdate.push({
+                id: creditCard.id,
+                newBalance: creditCard.balance - amount
+              });
+
+              // Also update bank account if credit card has a parent
+              if (creditCard.parentAccount) {
+                const bankAccount = accounts.find(a => a.id === creditCard.parentAccount);
+                if (bankAccount) {
+                  accountsToUpdate.push({
+                    id: bankAccount.id,
+                    newBalance: bankAccount.balance - amount
+                  });
+                }
+              }
+            } else {
+              alert('כרטיס האשראי המקושר לא נמצא');
+              return;
+            }
+          } else {
+            alert(`אין מספיק יתרה ב-${account.name} ואין כרטיס אשראי מקושר.`);
+            return;
+          }
+        }
+      } else {
+        // Regular account (credit card or bank) - charge it
+        accountsToUpdate.push({
+          id: account.id,
+          newBalance: account.balance - amount
+        });
+
+        // If it has a parent (e.g., credit card -> bank), update parent too
+        if (account.parentAccount) {
+          const parentAccount = accounts.find(a => a.id === account.parentAccount);
+          if (parentAccount) {
+            accountsToUpdate.push({
+              id: parentAccount.id,
+              newBalance: parentAccount.balance - amount
+            });
+          }
+        }
+      }
+    } else {
+      // Income - add to the account
+      const isPaymentApp = account.name.includes('Bit') || account.name.includes('PayBox');
+
+      accountsToUpdate.push({
+        id: account.id,
+        newBalance: account.balance + amount
+      });
+
+      // Only update parent if this is NOT Bit/PayBox (Bit/PayBox keep their own balance)
+      if (account.parentAccount && !isPaymentApp) {
+        const parentAccount = accounts.find(a => a.id === account.parentAccount);
+        if (parentAccount) {
+          accountsToUpdate.push({
+            id: parentAccount.id,
+            newBalance: parentAccount.balance + amount
+          });
+        }
+      }
+    }
+
     setIsSaving(true);
     try {
       const transactionData = {
         family_id: familyId,
         type: inlineTransaction.type,
-        amount: parseFloat(inlineTransaction.amount),
+        amount: amount,
         category: inlineTransaction.category,
         date: inlineTransaction.date,
         user_name: inlineTransaction.user,
@@ -963,6 +1260,23 @@ const BudgetApp = () => {
 
       if (error) throw error;
 
+      // Update all accounts in Supabase
+      for (const acc of accountsToUpdate) {
+        await supabase
+          .from('accounts')
+          .update({ balance: acc.newBalance })
+          .eq('id', acc.id);
+      }
+
+      // Update local state
+      setAccounts(prevAccounts => prevAccounts.map(acc => {
+        const update = accountsToUpdate.find(u => u.id === acc.id);
+        if (update) {
+          return { ...acc, balance: update.newBalance };
+        }
+        return acc;
+      }));
+
       const transaction = {
         id: data.id,
         type: data.type,
@@ -976,8 +1290,7 @@ const BudgetApp = () => {
         frequency: data.frequency
       };
 
-      setTransactions([transaction, ...transactions]);
-      await updateAccountBalance(transaction.account, transaction.amount, transaction.type);
+      setTransactions(prevTransactions => [transaction, ...prevTransactions]);
 
       setIsAddingInline(null);
     } catch (error) {
@@ -1258,22 +1571,37 @@ const BudgetApp = () => {
   };
 
   const getSortedAccountsForUser = (user) => {
-    const userAccounts = accounts.filter(a => a.user === user);
-    const parents = userAccounts
-      .filter(a => a.parentAccount === null)
+  const userAccounts = accounts.filter(a => a.user === user);
+  
+  // Get top-level accounts (no parent)
+  const topLevel = userAccounts
+    .filter(a => a.parentAccount === null)
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  const result = [];
+  
+  topLevel.forEach(parent => {
+    result.push(parent);
+    
+    // Get level 2 children (e.g., credit cards under bank account)
+    const level2Children = userAccounts
+      .filter(a => a.parentAccount === parent.id)
       .sort((a, b) => (a.order || 0) - (b.order || 0));
-
-    const result = [];
-    parents.forEach(parent => {
-      result.push(parent);
-      const children = userAccounts
-        .filter(a => a.parentAccount === parent.id)
+    
+    level2Children.forEach(child => {
+      result.push(child);
+      
+      // Get level 3 children (e.g., Bit/PayBox under credit card)
+      const level3Children = userAccounts
+        .filter(a => a.parentAccount === child.id)
         .sort((a, b) => (a.order || 0) - (b.order || 0));
-      result.push(...children);
+      
+      result.push(...level3Children);
     });
+  });
 
-    return result;
-  };
+  return result;
+};
 
   const getParentAccounts = (user) => {
     return accounts.filter(a => a.user === user && a.parentAccount === null);
@@ -1547,17 +1875,62 @@ const BudgetApp = () => {
         {/* Header */}
         <div className="px-6 py-4 text-white">
           <div className="flex items-center justify-between">
-            <button
-              onClick={() => {
-                setIsQuickMode(false);
-                sessionStorage.removeItem('quickMode');
-              }}
-              className="text-white/80 hover:text-white"
-            >
-              <X className="h-6 w-6" />
-            </button>
-            <h1 className="text-xl font-bold">⚡ הוצאה מהירה</h1>
-            <div className="w-6"></div>
+            {/* Right side: Title, User, Family */}
+            <div className="flex flex-col items-end">
+              <h1 className="text-xl font-bold">⚡ הוצאה מהירה</h1>
+              <span className="text-white/80 text-sm">{currentUser?.name}</span>
+              <span className="text-white/60 text-xs">{familyName}</span>
+            </div>
+
+            {/* Left side: Quick App button and Share/Logout stack */}
+            <div className="flex items-center gap-3">
+              {/* Quick App button */}
+              <button
+                onClick={() => {
+                  setIsQuickMode(false);
+                  sessionStorage.removeItem('quickMode');
+                }}
+                className="bg-yellow-400 text-yellow-900 px-3 py-2 rounded-lg font-medium hover:bg-yellow-300 transition-colors flex items-center gap-1"
+              >
+                <Zap className="w-4 h-4" />
+                לאפליקציה הרגילה
+              </button>
+
+              {/* Share and Logout stack */}
+              <div className="flex flex-col gap-2">
+                <div className="relative">
+                  <button
+                    onClick={() => setShowShareMenu(!showShareMenu)}
+                    className="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors w-full justify-center"
+                  >
+                    <Share2 size={18} />
+                    שיתוף
+                  </button>
+                  {showShareMenu && (
+                    <div className="absolute left-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-2 z-50">
+                      <button
+                        onClick={() => generateInviteLink('invite')}
+                        className="w-full text-right px-4 py-2 text-gray-700 hover:bg-gray-100"
+                      >
+                        הזמנה לחשבון שלי
+                      </button>
+                      <button
+                        onClick={() => generateInviteLink('app')}
+                        className="w-full text-right px-4 py-2 text-gray-700 hover:bg-gray-100"
+                      >
+                        שיתוף האפליקציה
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded-lg transition-colors w-full text-center"
+                >
+                  התנתק
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1922,8 +2295,10 @@ const BudgetApp = () => {
   }
 
   function renderTransactions() {
+    console.log('[renderTransactions] summary.filtered:', summary.filtered.length);
     const sortedExpenses = sortTransactions(summary.filtered.filter(t => t.type === 'expense'), sortConfig);
     const sortedIncomes = sortTransactions(summary.filtered.filter(t => t.type === 'income'), sortConfig);
+    console.log('[renderTransactions] sortedExpenses:', sortedExpenses.length, 'sortedIncomes:', sortedIncomes.length);
 
     const renderTable = (items, type) => (
       <div className="bg-white rounded-xl shadow-md overflow-hidden">
@@ -2122,7 +2497,11 @@ const BudgetApp = () => {
                       <div>
                         <span className="font-medium">{acc.name}</span>
                         {acc.billingDay !== null && <span className="text-xs text-gray-500 mr-2">({getBillingDayText(acc.billingDay)})</span>}
-                        <p className={`text-lg font-bold ${acc.balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>₪{acc.balance.toLocaleString()}</p>
+                        {acc.parentAccount && !acc.name.includes('Bit') && !acc.name.includes('PayBox') ? (
+                          <p className="text-sm text-gray-500">(₪{acc.balance.toLocaleString()})</p>
+                        ) : (
+                          <p className={`text-lg font-bold ${acc.balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>₪{acc.balance.toLocaleString()}</p>
+                        )}
                       </div>
                       <div className="flex gap-1">
                         {!acc.parentAccount && (
