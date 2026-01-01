@@ -2546,7 +2546,7 @@ const saveQuickExpense = async () => {
                       {/* Special handling for Bit/PayBox */}
                       {(editingAccount.name.includes('Bit') || editingAccount.name.includes('PayBox')) ? (
                         <>
-                          <label className="flex items-center gap-2 p-2 bg-blue-50 rounded">
+                          <label className="flex items-center gap-2 p-2 bg-blue-50 rounded cursor-pointer hover:bg-blue-100">
                             <input
                               type="checkbox"
                               checked={!!editingAccount.parentAccount}
@@ -2554,9 +2554,9 @@ const saveQuickExpense = async () => {
                                 ...editingAccount,
                                 parentAccount: e.target.checked ? (getParentAccounts(member.name).find(a => a.name.includes('כרטיס אשראי'))?.id || '') : null
                               })}
-                              className="w-4 h-4"
+                              className="w-5 h-5 cursor-pointer"
                             />
-                            <span className="text-sm font-medium">מקושר לכרטיס אשראי</span>
+                            <span className="text-sm font-medium select-none">מקושר לכרטיס אשראי</span>
                           </label>
                           {editingAccount.parentAccount && (
                             <select value={editingAccount.parentAccount || ''} onChange={(e) => setEditingAccount({ ...editingAccount, parentAccount: e.target.value ? e.target.value : null })} className="w-full border rounded p-2">
@@ -2618,7 +2618,7 @@ const saveQuickExpense = async () => {
                 {/* Special handling for Bit/PayBox */}
                 {(newAccount.name.includes('Bit') || newAccount.name.includes('PayBox')) ? (
                   <>
-                    <label className="flex items-center gap-2 p-2 bg-blue-50 rounded">
+                    <label className="flex items-center gap-2 p-2 bg-blue-50 rounded cursor-pointer hover:bg-blue-100">
                       <input
                         type="checkbox"
                         checked={!!newAccount.parentAccount}
@@ -2626,9 +2626,9 @@ const saveQuickExpense = async () => {
                           ...newAccount,
                           parentAccount: e.target.checked ? (getParentAccounts(member.name).find(a => a.name.includes('כרטיס אשראי'))?.id || '') : null
                         })}
-                        className="w-4 h-4"
+                        className="w-5 h-5 cursor-pointer"
                       />
-                      <span className="text-sm font-medium">מקושר לכרטיס אשראי</span>
+                      <span className="text-sm font-medium select-none">מקושר לכרטיס אשראי</span>
                     </label>
                     {newAccount.parentAccount && (
                       <select value={newAccount.parentAccount || ''} onChange={(e) => setNewAccount({ ...newAccount, parentAccount: e.target.value ? e.target.value : null })} className="w-full border rounded p-2">
