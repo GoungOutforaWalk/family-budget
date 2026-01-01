@@ -3,6 +3,15 @@ import { supabase } from './supabaseClient';
 import { PlusCircle, TrendingUp, TrendingDown, Zap, Wallet, Tag, List, Trash2, Edit2, X, Check, ArrowUp, ArrowDown, Users, LogIn, UserPlus, Share2, Link, Copy, Loader2 } from 'lucide-react';
 
 const BudgetApp = () => {
+  // Helper function to get local date in YYYY-MM-DD format
+  const getLocalDate = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // Loading states
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -33,7 +42,7 @@ const BudgetApp = () => {
     type: 'expense',
     amount: '',
     category: '',
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalDate(),
     user: '',
     account: '',
     note: '',
@@ -73,7 +82,7 @@ const BudgetApp = () => {
     type: 'expense',
     amount: '',
     category: '',
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalDate(),
     user: '',
     account: '',
     note: '',
@@ -820,7 +829,7 @@ const saveQuickExpense = async () => {
       category: quickExpense.category,
       account_id: quickExpense.account,
       note: quickExpense.note || '',
-      date: new Date().toISOString().split('T')[0]
+      date: getLocalDate()
     }).select().single();
 
     if (error) throw error;
@@ -1038,7 +1047,7 @@ const saveQuickExpense = async () => {
         type: 'expense',
         amount: '',
         category: '',
-        date: new Date().toISOString().split('T')[0],
+        date: getLocalDate(),
         user: familyMembers.length > 0 ? familyMembers[0].name : '',
         account: '',
         note: '',
@@ -1131,7 +1140,7 @@ const saveQuickExpense = async () => {
       type: type,
       amount: '',
       category: '',
-      date: new Date().toISOString().split('T')[0],
+      date: getLocalDate(),
       user: familyMembers.length > 0 ? familyMembers[0].name : '',
       account: '',
       note: '',
@@ -2535,7 +2544,7 @@ const saveQuickExpense = async () => {
                 </select>
                 <div className="flex gap-2">
                   <button onClick={addNewAccount} disabled={isSaving} className="flex-1 bg-green-500 text-white rounded p-2 hover:bg-green-600 disabled:opacity-50">{isSaving ? <Loader2 className="animate-spin mx-auto" size={20} /> : 'הוסף'}</button>
-                  <button onClick={() => setIsAddingAccount(false)} className="flex-1 bg-gray-300 rounded p-2 hover:bg-gray-400">ביטול</button>
+                  <button onClick={() => setIsAddingAccount(false)} className="flex-1 bg-red-500 text-white rounded p-2 hover:bg-red-600">ביטול</button>
                 </div>
               </div>
             ) : (
