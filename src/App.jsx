@@ -339,12 +339,24 @@ const BudgetApp = () => {
         });
 
         // Create default accounts for new member
-        const defaultAccounts = [
-          { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'חשבון בנק', balance: 0, sort_order: 0 },
+        // First create bank account
+        const { data: bankAccount } = await supabase.from('accounts')
+          .insert({ family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'חשבון בנק', balance: 0, sort_order: 0 })
+          .select()
+          .single();
+
+        // Then create credit card linked to bank
+        const { data: creditCard } = await supabase.from('accounts')
+          .insert({ family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'כרטיס אשראי', balance: 0, parent_account: bankAccount.id, billing_day: 10, sort_order: 0 })
+          .select()
+          .single();
+
+        // Create other accounts
+        await supabase.from('accounts').insert([
           { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'מזומן', balance: 0, sort_order: 1 },
-          { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'Bit', balance: 0, sort_order: 2 },
-        ];
-        await supabase.from('accounts').insert(defaultAccounts);
+          { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'Bit', balance: 0, parent_account: creditCard.id, sort_order: 1 },
+          { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'PayBox', balance: 0, parent_account: creditCard.id, sort_order: 2 },
+        ]);
 
         // Clear URL params
         window.history.replaceState({}, document.title, window.location.pathname);
@@ -385,12 +397,24 @@ const BudgetApp = () => {
         ];
         await supabase.from('categories').insert(defaultCategories);
 
-        const defaultAccounts = [
-          { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'חשבון בנק', balance: 0, sort_order: 0 },
+        // Create default accounts - first bank account
+        const { data: bankAccount } = await supabase.from('accounts')
+          .insert({ family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'חשבון בנק', balance: 0, sort_order: 0 })
+          .select()
+          .single();
+
+        // Then create credit card linked to bank
+        const { data: creditCard } = await supabase.from('accounts')
+          .insert({ family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'כרטיס אשראי', balance: 0, parent_account: bankAccount.id, billing_day: 10, sort_order: 0 })
+          .select()
+          .single();
+
+        // Create other accounts
+        await supabase.from('accounts').insert([
           { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'מזומן', balance: 0, sort_order: 1 },
-          { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'Bit', balance: 0, sort_order: 2 },
-        ];
-        await supabase.from('accounts').insert(defaultAccounts);
+          { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'Bit', balance: 0, parent_account: creditCard.id, sort_order: 1 },
+          { family_id: targetFamilyId, user_name: authForm.name.trim(), name: 'PayBox', balance: 0, parent_account: creditCard.id, sort_order: 2 },
+        ]);
       }
 
       await loadUserData(authData.user.id);
@@ -507,20 +531,53 @@ const BudgetApp = () => {
         createdAt: new Date().toISOString()
       };
 
-      const defaultAccounts = [
-        { family_id: familyId, user_name: newMemberName.trim(), name: 'חשבון בנק', balance: 0, sort_order: 0 },
-        { family_id: familyId, user_name: newMemberName.trim(), name: 'מזומן', balance: 0, sort_order: 1 },
-        { family_id: familyId, user_name: newMemberName.trim(), name: 'Bit', balance: 0, sort_order: 2 },
-      ];
+      // Create bank account first
+      const { data: bankAccount } = await supabase.from('accounts')
+        .insert({ family_id: familyId, user_name: newMemberName.trim(), name: 'חשבון בנק', balance: 0, sort_order: 0 })
+        .select()
+        .single();
 
+      // Then create credit card linked to bank
+      const { data: creditCard } = await supabase.from('accounts')
+        .insert({ family_id: familyId, user_name: newMemberName.trim(), name: 'כרטיס אשראי', balance: 0, parent_account: bankAccount.id, billing_day: 10, sort_order: 0 })
+        .select()
+        .single();
+
+      // Create other accounts
       const { data: newAccounts, error } = await supabase
         .from('accounts')
-        .insert(defaultAccounts)
+        .insert([
+          { family_id: familyId, user_name: newMemberName.trim(), name: 'מזומן', balance: 0, sort_order: 1 },
+          { family_id: familyId, user_name: newMemberName.trim(), name: 'Bit', balance: 0, parent_account: creditCard.id, sort_order: 1 },
+          { family_id: familyId, user_name: newMemberName.trim(), name: 'PayBox', balance: 0, parent_account: creditCard.id, sort_order: 2 },
+        ])
         .select();
 
       if (error) throw error;
 
       setFamilyMembers([...familyMembers, newMember]);
+
+      // Add all created accounts to state
+      const allNewAccounts = [
+        {
+          id: bankAccount.id,
+          name: bankAccount.name,
+          user: bankAccount.user_name,
+          balance: parseFloat(bankAccount.balance) || 0,
+          parentAccount: bankAccount.parent_account,
+          billingDay: bankAccount.billing_day,
+          order: bankAccount.sort_order
+        },
+        {
+          id: creditCard.id,
+          name: creditCard.name,
+          user: creditCard.user_name,
+          balance: parseFloat(creditCard.balance) || 0,
+          parentAccount: creditCard.parent_account,
+          billingDay: creditCard.billing_day,
+          order: creditCard.sort_order
+        }
+      ];
 
       if (newAccounts) {
         const mappedAccounts = newAccounts.map(a => ({
@@ -532,8 +589,10 @@ const BudgetApp = () => {
           billingDay: a.billing_day,
           order: a.sort_order
         }));
-        setAccounts([...accounts, ...mappedAccounts]);
+        allNewAccounts.push(...mappedAccounts);
       }
+
+      setAccounts([...accounts, ...allNewAccounts]);
 
       setNewMemberName('');
       setIsAddingMember(false);
@@ -2481,24 +2540,20 @@ const saveQuickExpense = async () => {
                 <div key={acc.id} className={`flex items-center justify-between p-3 rounded-lg ${acc.parentAccount ? 'bg-gray-100 mr-4' : 'bg-gray-50'}`}>
                   {editingAccount?.id === acc.id ? (
                     <div className="flex-1 space-y-2">
+                      <input type="text" value={editingAccount.name} onChange={(e) => setEditingAccount({ ...editingAccount, name: e.target.value })} className="w-full border rounded p-2" placeholder="שם המקור" />
+                      <input type="number" value={newAccountBalance} onChange={(e) => setNewAccountBalance(e.target.value)} className="w-full border rounded p-2" placeholder="יתרה" />
+                      <select value={editingAccount.parentAccount || ''} onChange={(e) => setEditingAccount({ ...editingAccount, parentAccount: e.target.value ? e.target.value : null })} className="w-full border rounded p-2">
+                        <option value="">ללא חשבון אב</option>
+                        {getParentAccounts(member.name).filter(a => a.id !== acc.id).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      </select>
+                      <select value={editingAccount.billingDay === null ? '' : editingAccount.billingDay} onChange={(e) => setEditingAccount({ ...editingAccount, billingDay: e.target.value === '' ? null : e.target.value })} className="w-full border rounded p-2">
+                        <option value="">ללא תאריך חיוב</option>
+                        <option value="0">דיירקט</option>
+                        {[...Array(28)].map((_, i) => <option key={i + 1} value={i + 1}>חיוב ב-{i + 1} לחודש</option>)}
+                      </select>
                       <div className="flex gap-2">
-                        <input type="text" value={editingAccount.name} onChange={(e) => setEditingAccount({ ...editingAccount, name: e.target.value })} className="flex-1 border rounded p-1" />
-                        <input type="number" value={newAccountBalance} onChange={(e) => setNewAccountBalance(e.target.value)} className="w-32 border rounded p-1" />
-                      </div>
-                      <div className="flex gap-2">
-                        <select value={editingAccount.parentAccount || ''} onChange={(e) => setEditingAccount({ ...editingAccount, parentAccount: e.target.value ? e.target.value : null })} className="flex-1 border rounded p-1">
-                          <option value="">ללא חשבון אב</option>
-                          {getParentAccounts(member.name).filter(a => a.id !== acc.id).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                        </select>
-                        <select value={editingAccount.billingDay === null ? '' : editingAccount.billingDay} onChange={(e) => setEditingAccount({ ...editingAccount, billingDay: e.target.value === '' ? null : e.target.value })} className="flex-1 border rounded p-1">
-                          <option value="">ללא תאריך חיוב</option>
-                          <option value="0">דיירקט</option>
-                          {[...Array(28)].map((_, i) => <option key={i + 1} value={i + 1}>חיוב ב-{i + 1} לחודש</option>)}
-                        </select>
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={updateAccountInitialBalance} className="text-green-600"><Check size={18} /></button>
-                        <button onClick={() => setEditingAccount(null)} className="text-red-600"><X size={18} /></button>
+                        <button onClick={updateAccountInitialBalance} className="flex-1 bg-green-500 text-white rounded p-2 hover:bg-green-600"><Check size={18} /></button>
+                        <button onClick={() => setEditingAccount(null)} className="flex-1 bg-red-500 text-white rounded p-2 hover:bg-red-600"><X size={18} /></button>
                       </div>
                     </div>
                   ) : (
