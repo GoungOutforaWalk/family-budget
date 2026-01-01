@@ -2542,18 +2542,46 @@ const saveQuickExpense = async () => {
                     <div className="flex-1 space-y-2">
                       <input type="text" value={editingAccount.name} onChange={(e) => setEditingAccount({ ...editingAccount, name: e.target.value })} className="w-full border rounded p-2" placeholder="שם המקור" />
                       <input type="number" value={newAccountBalance} onChange={(e) => setNewAccountBalance(e.target.value)} className="w-full border rounded p-2" placeholder="יתרה" />
-                      <select value={editingAccount.parentAccount || ''} onChange={(e) => setEditingAccount({ ...editingAccount, parentAccount: e.target.value ? e.target.value : null })} className="w-full border rounded p-2">
-                        <option value="">ללא חשבון אב</option>
-                        {getParentAccounts(member.name).filter(a => a.id !== acc.id).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                      </select>
-                      <select value={editingAccount.billingDay === null ? '' : editingAccount.billingDay} onChange={(e) => setEditingAccount({ ...editingAccount, billingDay: e.target.value === '' ? null : e.target.value })} className="w-full border rounded p-2">
-                        <option value="">ללא תאריך חיוב</option>
-                        <option value="0">דיירקט</option>
-                        {[...Array(28)].map((_, i) => <option key={i + 1} value={i + 1}>חיוב ב-{i + 1} לחודש</option>)}
-                      </select>
+
+                      {/* Special handling for Bit/PayBox */}
+                      {(editingAccount.name.includes('Bit') || editingAccount.name.includes('PayBox')) ? (
+                        <>
+                          <label className="flex items-center gap-2 p-2 bg-blue-50 rounded">
+                            <input
+                              type="checkbox"
+                              checked={!!editingAccount.parentAccount}
+                              onChange={(e) => setEditingAccount({
+                                ...editingAccount,
+                                parentAccount: e.target.checked ? (getParentAccounts(member.name).find(a => a.name.includes('כרטיס אשראי'))?.id || '') : null
+                              })}
+                              className="w-4 h-4"
+                            />
+                            <span className="text-sm font-medium">מקושר לכרטיס אשראי</span>
+                          </label>
+                          {editingAccount.parentAccount && (
+                            <select value={editingAccount.parentAccount || ''} onChange={(e) => setEditingAccount({ ...editingAccount, parentAccount: e.target.value ? e.target.value : null })} className="w-full border rounded p-2">
+                              <option value="">בחר כרטיס אשראי</option>
+                              {getParentAccounts(member.name).filter(a => a.id !== acc.id).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                            </select>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <select value={editingAccount.parentAccount || ''} onChange={(e) => setEditingAccount({ ...editingAccount, parentAccount: e.target.value ? e.target.value : null })} className="w-full border rounded p-2">
+                            <option value="">ללא חשבון אב</option>
+                            {getParentAccounts(member.name).filter(a => a.id !== acc.id).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                          </select>
+                          <select value={editingAccount.billingDay === null ? '' : editingAccount.billingDay} onChange={(e) => setEditingAccount({ ...editingAccount, billingDay: e.target.value === '' ? null : e.target.value })} className="w-full border rounded p-2">
+                            <option value="">ללא תאריך חיוב</option>
+                            <option value="0">דיירקט</option>
+                            {[...Array(28)].map((_, i) => <option key={i + 1} value={i + 1}>חיוב ב-{i + 1} לחודש</option>)}
+                          </select>
+                        </>
+                      )}
+
                       <div className="flex gap-2">
-                        <button onClick={updateAccountInitialBalance} className="flex-1 bg-green-500 text-white rounded p-2 hover:bg-green-600"><Check size={18} /></button>
-                        <button onClick={() => setEditingAccount(null)} className="flex-1 bg-red-500 text-white rounded p-2 hover:bg-red-600"><X size={18} /></button>
+                        <button onClick={updateAccountInitialBalance} className="flex-1 bg-green-500 text-white rounded p-2 hover:bg-green-600 flex items-center justify-center"><Check size={18} /></button>
+                        <button onClick={() => setEditingAccount(null)} className="flex-1 bg-red-500 text-white rounded p-2 hover:bg-red-600 flex items-center justify-center"><X size={18} /></button>
                       </div>
                     </div>
                   ) : (
@@ -2585,18 +2613,44 @@ const saveQuickExpense = async () => {
             {isAddingAccount && newAccount.user === member.name ? (
               <div className="mt-4 p-3 bg-yellow-50 rounded-lg space-y-2">
                 <input type="text" value={newAccount.name} onChange={(e) => setNewAccount({ ...newAccount, name: e.target.value })} className="w-full border rounded p-2" placeholder="שם המקור" />
-                <div className="flex gap-2">
-                  <input type="number" value={newAccount.balance} onChange={(e) => setNewAccount({ ...newAccount, balance: e.target.value })} className="flex-1 border rounded p-2" placeholder="יתרה" />
-                  <select value={newAccount.parentAccount || ''} onChange={(e) => setNewAccount({ ...newAccount, parentAccount: e.target.value ? e.target.value : null })} className="flex-1 border rounded p-2">
-                    <option value="">ללא חשבון אב</option>
-                    {getParentAccounts(member.name).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </select>
-                </div>
-                <select value={newAccount.billingDay === null ? '' : newAccount.billingDay} onChange={(e) => setNewAccount({ ...newAccount, billingDay: e.target.value === '' ? null : e.target.value })} className="w-full border rounded p-2">
-                  <option value="">ללא תאריך חיוב</option>
-                  <option value="0">דיירקט</option>
-                  {[...Array(28)].map((_, i) => <option key={i + 1} value={i + 1}>כרטיס אשראי - חיוב ב-{i + 1}</option>)}
-                </select>
+                <input type="number" value={newAccount.balance} onChange={(e) => setNewAccount({ ...newAccount, balance: e.target.value })} className="w-full border rounded p-2" placeholder="יתרה" />
+
+                {/* Special handling for Bit/PayBox */}
+                {(newAccount.name.includes('Bit') || newAccount.name.includes('PayBox')) ? (
+                  <>
+                    <label className="flex items-center gap-2 p-2 bg-blue-50 rounded">
+                      <input
+                        type="checkbox"
+                        checked={!!newAccount.parentAccount}
+                        onChange={(e) => setNewAccount({
+                          ...newAccount,
+                          parentAccount: e.target.checked ? (getParentAccounts(member.name).find(a => a.name.includes('כרטיס אשראי'))?.id || '') : null
+                        })}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm font-medium">מקושר לכרטיס אשראי</span>
+                    </label>
+                    {newAccount.parentAccount && (
+                      <select value={newAccount.parentAccount || ''} onChange={(e) => setNewAccount({ ...newAccount, parentAccount: e.target.value ? e.target.value : null })} className="w-full border rounded p-2">
+                        <option value="">בחר כרטיס אשראי</option>
+                        {getParentAccounts(member.name).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      </select>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <select value={newAccount.parentAccount || ''} onChange={(e) => setNewAccount({ ...newAccount, parentAccount: e.target.value ? e.target.value : null })} className="w-full border rounded p-2">
+                      <option value="">ללא חשבון אב</option>
+                      {getParentAccounts(member.name).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                    <select value={newAccount.billingDay === null ? '' : newAccount.billingDay} onChange={(e) => setNewAccount({ ...newAccount, billingDay: e.target.value === '' ? null : e.target.value })} className="w-full border rounded p-2">
+                      <option value="">ללא תאריך חיוב</option>
+                      <option value="0">דיירקט</option>
+                      {[...Array(28)].map((_, i) => <option key={i + 1} value={i + 1}>כרטיס אשראי - חיוב ב-{i + 1}</option>)}
+                    </select>
+                  </>
+                )}
+
                 <div className="flex gap-2">
                   <button onClick={addNewAccount} disabled={isSaving} className="flex-1 bg-green-500 text-white rounded p-2 hover:bg-green-600 disabled:opacity-50">{isSaving ? <Loader2 className="animate-spin mx-auto" size={20} /> : 'הוסף'}</button>
                   <button onClick={() => setIsAddingAccount(false)} className="flex-1 bg-red-500 text-white rounded p-2 hover:bg-red-600">ביטול</button>
@@ -2648,7 +2702,7 @@ const saveQuickExpense = async () => {
           <div className="mt-4 flex gap-2">
             <input type="text" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} className="flex-1 border rounded-lg p-2" placeholder="שם המשתמש החדש" />
             <button onClick={addFamilyMember} disabled={isSaving} className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 disabled:opacity-50">{isSaving ? <Loader2 className="animate-spin" size={20} /> : <Check size={20} />}</button>
-            <button onClick={() => { setIsAddingMember(false); setNewMemberName(''); }} className="bg-gray-300 px-4 py-2 rounded-lg hover:bg-gray-400"><X size={20} /></button>
+            <button onClick={() => { setIsAddingMember(false); setNewMemberName(''); }} className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600"><X size={20} /></button>
           </div>
         ) : (
           <button onClick={() => setIsAddingMember(true)} className="mt-4 w-full border-2 border-dashed border-gray-300 rounded-lg p-3 text-gray-500 hover:border-purple-400 hover:text-purple-600 flex items-center justify-center gap-2">
