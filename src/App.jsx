@@ -1675,6 +1675,10 @@ const saveQuickExpense = async () => {
     return accounts.filter(a => a.user === user && a.parentAccount === null);
   };
 
+  const getCreditCards = (user) => {
+    return accounts.filter(a => a.user === user && a.billingDay !== null && a.billingDay !== undefined);
+  };
+
   const getBillingDayText = (billingDay) => {
     if (billingDay === null) return null;
     if (billingDay === 0) return 'דיירקט';
@@ -2546,22 +2550,25 @@ const saveQuickExpense = async () => {
                       {/* Special handling for Bit/PayBox */}
                       {(editingAccount.name.includes('Bit') || editingAccount.name.includes('PayBox')) ? (
                         <>
-                          <label className="flex items-center gap-2 p-2 bg-blue-50 rounded cursor-pointer hover:bg-blue-100">
+                          <div className="flex items-center gap-2 p-2 bg-blue-50 rounded cursor-pointer hover:bg-blue-100" onClick={() => {
+                            const newValue = !editingAccount.parentAccount;
+                            setEditingAccount({
+                              ...editingAccount,
+                              parentAccount: newValue ? (getCreditCards(member.name)[0]?.id || '') : null
+                            });
+                          }}>
                             <input
                               type="checkbox"
                               checked={!!editingAccount.parentAccount}
-                              onChange={(e) => setEditingAccount({
-                                ...editingAccount,
-                                parentAccount: e.target.checked ? (getParentAccounts(member.name).find(a => a.name.includes('כרטיס אשראי'))?.id || '') : null
-                              })}
-                              className="w-5 h-5 cursor-pointer"
+                              readOnly
+                              className="w-5 h-5 cursor-pointer pointer-events-none"
                             />
                             <span className="text-sm font-medium select-none">מקושר לכרטיס אשראי</span>
-                          </label>
+                          </div>
                           {editingAccount.parentAccount && (
                             <select value={editingAccount.parentAccount || ''} onChange={(e) => setEditingAccount({ ...editingAccount, parentAccount: e.target.value ? e.target.value : null })} className="w-full border rounded p-2">
                               <option value="">בחר כרטיס אשראי</option>
-                              {getParentAccounts(member.name).filter(a => a.id !== acc.id).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                              {getCreditCards(member.name).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                             </select>
                           )}
                         </>
@@ -2618,22 +2625,25 @@ const saveQuickExpense = async () => {
                 {/* Special handling for Bit/PayBox */}
                 {(newAccount.name.includes('Bit') || newAccount.name.includes('PayBox')) ? (
                   <>
-                    <label className="flex items-center gap-2 p-2 bg-blue-50 rounded cursor-pointer hover:bg-blue-100">
+                    <div className="flex items-center gap-2 p-2 bg-blue-50 rounded cursor-pointer hover:bg-blue-100" onClick={() => {
+                      const newValue = !newAccount.parentAccount;
+                      setNewAccount({
+                        ...newAccount,
+                        parentAccount: newValue ? (getCreditCards(member.name)[0]?.id || '') : null
+                      });
+                    }}>
                       <input
                         type="checkbox"
                         checked={!!newAccount.parentAccount}
-                        onChange={(e) => setNewAccount({
-                          ...newAccount,
-                          parentAccount: e.target.checked ? (getParentAccounts(member.name).find(a => a.name.includes('כרטיס אשראי'))?.id || '') : null
-                        })}
-                        className="w-5 h-5 cursor-pointer"
+                        readOnly
+                        className="w-5 h-5 cursor-pointer pointer-events-none"
                       />
                       <span className="text-sm font-medium select-none">מקושר לכרטיס אשראי</span>
-                    </label>
+                    </div>
                     {newAccount.parentAccount && (
                       <select value={newAccount.parentAccount || ''} onChange={(e) => setNewAccount({ ...newAccount, parentAccount: e.target.value ? e.target.value : null })} className="w-full border rounded p-2">
                         <option value="">בחר כרטיס אשראי</option>
-                        {getParentAccounts(member.name).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                        {getCreditCards(member.name).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                       </select>
                     )}
                   </>
