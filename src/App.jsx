@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { supabase } from './supabaseClient';
-import { PlusCircle, TrendingUp, TrendingDown, Zap, Wallet, Tag, List, Trash2, Edit2, X, Check, ArrowUp, ArrowDown, Users, LogIn, UserPlus, Share2, Link, Copy, Loader2 } from 'lucide-react';
+import { PlusCircle, TrendingUp, TrendingDown, Zap, Wallet, Tag, List, Trash2, Edit2, X, Check, ArrowUp, ArrowDown, Users, LogIn, UserPlus, Share2, Link, Copy, Loader2, Repeat } from 'lucide-react';
 
 const BudgetApp = () => {
   // Helper function to get local date in YYYY-MM-DD format
@@ -37,6 +37,7 @@ const BudgetApp = () => {
   });
 
   const [accounts, setAccounts] = useState([]);
+  const [transfers, setTransfers] = useState([]);
 
   const [newTransaction, setNewTransaction] = useState({
     type: 'expense',
@@ -48,6 +49,15 @@ const BudgetApp = () => {
     note: '',
     isRecurring: false,
     frequency: 'monthly'
+  });
+
+  const [newTransfer, setNewTransfer] = useState({
+    amount: '',
+    fromAccount: '',
+    toAccount: '',
+    date: getLocalDate(),
+    user: '',
+    note: ''
   });
 
   const [isEditingTransaction, setIsEditingTransaction] = useState(null);
